@@ -1,0 +1,25 @@
+# application.yml
+spring:
+  application:
+    name: route-planning-service
+  profiles:
+    active: dev
+
+server:
+  port: 8082
+  servlet:
+    context-path: /api
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+logging:
+  level:
+    com.travelapp.route: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
