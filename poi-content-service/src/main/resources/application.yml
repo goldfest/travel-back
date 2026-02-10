@@ -1,0 +1,113 @@
+server:
+  port: 8081
+  servlet:
+    context-path: /api/poi
+
+spring:
+  application:
+    name: poi-content-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/poi_db
+    username: poi_user
+    password: poi_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+    show-sql: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 60000
+      cache-null-values: false
+
+  redis:
+    host: localhost
+    port: 6379
+    timeout: 2000
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# External services configuration
+services:
+  city:
+    base-url: http://localhost:8082/api/city
+  auth:
+    base-url: http://localhost:8080/api/auth
+  review:
+    base-url: http://localhost:8083/api/review
+
+# Import configuration
+import:
+  sources:
+    google-maps:
+      enabled: false
+      api-key: ${GOOGLE_MAPS_API_KEY:}
+      rate-limit: 10
+    yandex:
+      enabled: false
+      api-key: ${YANDEX_API_KEY:}
+      rate-limit: 15
+  batch:
+    size: 50
+    retry-attempts: 3
+    retry-delay: 1000
+
+# Pagination
+pagination:
+  default-page-size: 20
+  max-page-size: 100
+
+logging:
+  level:
+    com.travelapp.poi: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
