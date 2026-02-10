@@ -1,0 +1,78 @@
+spring:
+  application:
+    name: personalization-history-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/personalization_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:password}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+    show-sql: ${SHOW_SQL:false}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600s
+      cache-null-values: false
+
+server:
+  port: ${SERVER_PORT:8085}
+  servlet:
+    context-path: /api/personalization
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.travelapp.personalization: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: ${SHOW_SQL:false}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+app:
+  cache:
+    favorites:
+      ttl: 1800 # 30 минут
+    collections:
+      ttl: 3600 # 1 час
+    search-history:
+      ttl: 900 # 15 минут
+  security:
+    user-header: X-User-Id
