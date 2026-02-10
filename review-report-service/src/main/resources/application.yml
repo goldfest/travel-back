@@ -1,0 +1,101 @@
+server:
+  port: 8083
+  servlet:
+    context-path: /api/reviews
+
+spring:
+  application:
+    name: review-report-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/travel_review_db
+    username: review_user
+    password: review_password
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        default_schema: review_service
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+        format_sql: true
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 60000
+      cache-null-values: false
+
+  redis:
+    host: localhost
+    port: 6379
+    timeout: 2000ms
+
+# Security (будет интегрировано с auth-service)
+security:
+  jwt:
+    secret: ${JWT_SECRET:your-jwt-secret-key-for-review-service-min-256-bits}
+    expiration: 86400000
+
+# Service URLs
+service:
+  auth:
+    url: http://localhost:8081/api/auth
+  poi:
+    url: http://localhost:8082/api/poi
+
+# Swagger/OpenAPI
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  packages-to-scan: com.travelapp.review.controller
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+
+# Logging
+logging:
+  level:
+    com.travelapp.review: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/review-service.log
+    max-size: 10MB
+    max-history: 30
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
