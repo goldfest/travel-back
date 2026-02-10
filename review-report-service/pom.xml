@@ -13,7 +13,7 @@
     </parent>
 
     <artifactId>review-report-service</artifactId>
-    <name>Review & Reports Service</name>
+    <name>Review-Reports Service</name>
     <description>Service for managing reviews and reports</description>
 
     <properties>
