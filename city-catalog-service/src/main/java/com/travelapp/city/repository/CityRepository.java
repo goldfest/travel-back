@@ -22,17 +22,19 @@ public interface CityRepository extends JpaRepository<City, Long> {
 
     List<City> findByIsPopularTrue();
 
-    List<City> findByCountryCode(String countryCode);
-
     Page<City> findByNameContainingIgnoreCase(String name, Pageable pageable);
 
     Page<City> findByCountryContainingIgnoreCase(String country, Pageable pageable);
 
     Page<City> findByIsPopular(Boolean isPopular, Pageable pageable);
 
-    @Query("SELECT c FROM City c WHERE " +
-            "LOWER(c.name) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            "OR LOWER(c.country) LIKE LOWER(CONCAT('%', :query, '%')) " +
-            "OR LOWER(c.description) LIKE LOWER(CONCAT('%', :query, '%'))")
+    Page<City> findByCountryCodeIgnoreCase(String countryCode, Pageable pageable);
+
+    @Query("""
+    SELECT c FROM City c
+    WHERE LOWER(c.name) LIKE LOWER(CONCAT('%', :query, '%'))
+       OR LOWER(COALESCE(c.country, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+       OR LOWER(COALESCE(c.description, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+    """)
     Page<City> search(@Param("query") String query, Pageable pageable);
 }

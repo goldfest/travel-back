@@ -1,4 +1,4 @@
-package com.travelapp.poi.service.mapper;
+package com.travelapp.poi.mapper;
 
 import com.travelapp.poi.model.dto.response.ImportTaskResponse;
 import com.travelapp.poi.model.entity.DataImportTask;

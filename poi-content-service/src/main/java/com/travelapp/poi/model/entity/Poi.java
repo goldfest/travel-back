@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.vladmihalcea.hibernate.type.json.JsonType;
+//import com.vladmihalcea.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -36,7 +36,7 @@ public class Poi {
     @Column(name = "slug", nullable = false, unique = true, length = 255)
     private String slug;
 
-    @Type(JsonType.class)
+    //@Type(JsonType.class)
     @Column(name = "tags", columnDefinition = "jsonb")
     private JsonNode tags;
 

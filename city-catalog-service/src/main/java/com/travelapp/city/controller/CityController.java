@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/cities")
+@RequestMapping("/v1")
 @RequiredArgsConstructor
 @Tag(name = "City Management", description = "API для управления городами")
 public class CityController {
@@ -50,7 +51,8 @@ public class CityController {
     @PutMapping("/{id}")
     public ResponseEntity<CityResponseDto> updateCity(
             @Parameter(description = "ID города") @PathVariable Long id,
-            @Valid @RequestBody CityRequestDto requestDto) {
+            @Valid @RequestBody CityRequestDto requestDto
+    ) {
         CityResponseDto city = cityService.updateCity(id, requestDto);
         return ResponseEntity.ok(city);
     }
@@ -62,7 +64,8 @@ public class CityController {
     })
     @GetMapping("/{id}")
     public ResponseEntity<CityResponseDto> getCityById(
-            @Parameter(description = "ID города") @PathVariable Long id) {
+            @Parameter(description = "ID города") @PathVariable Long id
+    ) {
         CityResponseDto city = cityService.getCityById(id);
         return ResponseEntity.ok(city);
     }
@@ -74,7 +77,8 @@ public class CityController {
     })
     @GetMapping("/slug/{slug}")
     public ResponseEntity<CityResponseDto> getCityBySlug(
-            @Parameter(description = "Slug города") @PathVariable String slug) {
+            @Parameter(description = "Slug города") @PathVariable String slug
+    ) {
         CityResponseDto city = cityService.getCityBySlug(slug);
         return ResponseEntity.ok(city);
     }
@@ -86,7 +90,8 @@ public class CityController {
     })
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCity(
-            @Parameter(description = "ID города") @PathVariable Long id) {
+            @Parameter(description = "ID города") @PathVariable Long id
+    ) {
         cityService.deleteCity(id);
         return ResponseEntity.noContent().build();
     }
@@ -95,7 +100,8 @@ public class CityController {
     @GetMapping
     public ResponseEntity<Page<CityResponseDto>> getAllCities(
             @Parameter(description = "Параметры пагинации")
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+    ) {
         Page<CityResponseDto> cities = cityService.getAllCities(pageable);
         return ResponseEntity.ok(cities);
     }
@@ -111,7 +117,8 @@ public class CityController {
     @GetMapping("/search")
     public ResponseEntity<Page<CityResponseDto>> searchCities(
             @Parameter(description = "Поисковый запрос") @RequestParam String query,
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+    ) {
         Page<CityResponseDto> cities = cityService.searchCities(query, pageable);
         return ResponseEntity.ok(cities);
     }
@@ -119,8 +126,12 @@ public class CityController {
     @Operation(summary = "Получить города по коду страны", description = "Получение списка городов по ISO коду страны")
     @GetMapping("/country/{countryCode}")
     public ResponseEntity<Page<CityResponseDto>> getCitiesByCountryCode(
-            @Parameter(description = "Код страны (ISO 3166-1 alpha-2)") @PathVariable String countryCode,
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
+            @Parameter(description = "Код страны (ISO 3166-1 alpha-2)")
+            @PathVariable
+            @Pattern(regexp = "^[A-Za-z]{2}$", message = "Код страны должен состоять из 2 букв")
+            String countryCode,
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+    ) {
         Page<CityResponseDto> cities = cityService.getCitiesByCountryCode(countryCode, pageable);
         return ResponseEntity.ok(cities);
     }
@@ -128,7 +139,8 @@ public class CityController {
     @Operation(summary = "Проверить существование города по slug", description = "Проверка, существует ли город с указанным slug")
     @GetMapping("/exists/{slug}")
     public ResponseEntity<Boolean> checkCityExists(
-            @Parameter(description = "Slug города") @PathVariable String slug) {
+            @Parameter(description = "Slug города") @PathVariable String slug
+    ) {
         boolean exists = cityService.existsBySlug(slug);
         return ResponseEntity.ok(exists);
     }

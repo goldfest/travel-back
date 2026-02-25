@@ -9,8 +9,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/travel_review_db
-    username: review_user
-    password: review_password
+    username: postgres
+    password: 1234
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -53,9 +53,9 @@ security:
 # Service URLs
 service:
   auth:
-    url: http://localhost:8081/api/auth
+    url: http://localhost:8080/api/auth
   poi:
-    url: http://localhost:8082/api/poi
+    url: http://localhost:8081/api/poi
 
 # Swagger/OpenAPI
 springdoc:

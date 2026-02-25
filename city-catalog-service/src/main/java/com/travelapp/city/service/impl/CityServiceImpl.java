@@ -1,5 +1,6 @@
 package com.travelapp.city.service.impl;
 
+import com.travelapp.city.exception.ConflictException;
 import com.travelapp.city.exception.ResourceNotFoundException;
 import com.travelapp.city.mapper.CityMapper;
 import com.travelapp.city.model.dto.request.CityRequestDto;
@@ -35,8 +36,10 @@ public class CityServiceImpl implements CityService {
     public CityResponseDto createCity(CityRequestDto requestDto) {
         log.debug("Creating new city: {}", requestDto.getName());
 
+        normalize(requestDto);
+
         if (cityRepository.existsBySlug(requestDto.getSlug())) {
-            throw new IllegalArgumentException("Город с таким slug уже существует: " + requestDto.getSlug());
+            throw new ConflictException("Город с таким slug уже существует: " + requestDto.getSlug());
         }
 
         City city = cityMapper.toEntity(requestDto);
@@ -57,11 +60,13 @@ public class CityServiceImpl implements CityService {
     public CityResponseDto updateCity(Long id, CityRequestDto requestDto) {
         log.debug("Updating city with ID: {}", id);
 
+        normalize(requestDto);
+
         City city = cityRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Город с ID " + id + " не найден"));
 
         if (cityRepository.existsBySlugAndIdNot(requestDto.getSlug(), id)) {
-            throw new IllegalArgumentException("Город с таким slug уже существует: " + requestDto.getSlug());
+            throw new ConflictException("Город с таким slug уже существует: " + requestDto.getSlug());
         }
 
         cityMapper.updateEntity(requestDto, city);
@@ -83,7 +88,7 @@ public class CityServiceImpl implements CityService {
     }
 
     @Override
-    @Cacheable(value = "cityBySlug", key = "#slug")
+    @Cacheable(value = "cityBySlug", key = "T(java.lang.String).valueOf(#slug).trim().toLowerCase()")
     public CityResponseDto getCityBySlug(String slug) {
         log.debug("Getting city by slug: {}", slug);
 
@@ -113,7 +118,7 @@ public class CityServiceImpl implements CityService {
     }
 
     @Override
-    @Cacheable(value = "cities", key = "#pageable.pageNumber + '-' + #pageable.pageSize")
+    @Cacheable(value = "cities", key = "#pageable.pageNumber + '-' + #pageable.pageSize + '-' + #pageable.sort.toString()")
     public Page<CityResponseDto> getAllCities(Pageable pageable) {
         log.debug("Getting all cities, page: {}, size: {}", pageable.getPageNumber(), pageable.getPageSize());
 
@@ -148,9 +153,8 @@ public class CityServiceImpl implements CityService {
 
     @Override
     public Page<CityResponseDto> getCitiesByCountryCode(String countryCode, Pageable pageable) {
-        log.debug("Getting cities by country code: {}", countryCode);
-
-        Page<City> cities = cityRepository.findByCountryCode(countryCode, pageable);
+        String normalized = countryCode == null ? null : countryCode.trim().toUpperCase();
+        Page<City> cities = cityRepository.findByCountryCodeIgnoreCase(normalized, pageable);
         return cities.map(cityMapper::toDto);
     }
 
@@ -167,5 +171,25 @@ public class CityServiceImpl implements CityService {
         return cities.stream()
                 .map(cityMapper::toDto)
                 .collect(Collectors.toList());
+    }
+
+    private void normalize(CityRequestDto dto) {
+        if (dto == null) return;
+
+        if (dto.getCountryCode() != null) {
+            dto.setCountryCode(dto.getCountryCode().trim().toUpperCase());
+        }
+
+        if (dto.getSlug() != null) {
+            dto.setSlug(dto.getSlug().trim().toLowerCase());
+        }
+
+        if (dto.getName() != null) {
+            dto.setName(dto.getName().trim());
+        }
+
+        if (dto.getCountry() != null) {
+            dto.setCountry(dto.getCountry().trim());
+        }
     }
 }
