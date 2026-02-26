@@ -1,6 +1,7 @@
 package com.travelapp.city.mapper;
 
 import com.travelapp.city.model.dto.request.CityRequestDto;
+import com.travelapp.city.model.dto.response.CityLookupDto;
 import com.travelapp.city.model.dto.response.CityResponseDto;
 import com.travelapp.city.model.entity.City;
 import org.mapstruct.Mapper;
@@ -18,6 +19,7 @@ public interface CityMapper {
     City toEntity(CityRequestDto dto);
 
     CityResponseDto toDto(City entity);
+    CityLookupDto toLookupDto(City entity);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
@@ -25,4 +27,5 @@ public interface CityMapper {
     void updateEntity(CityRequestDto dto, @MappingTarget City entity);
 
     List<CityResponseDto> toDtoList(List<City> entities);
+    List<CityLookupDto> toLookupDtoList(List<City> entities);
 }

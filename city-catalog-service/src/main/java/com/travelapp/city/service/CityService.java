@@ -1,6 +1,7 @@
 package com.travelapp.city.service;
 
 import com.travelapp.city.model.dto.request.CityRequestDto;
+import com.travelapp.city.model.dto.response.CityLookupDto;
 import com.travelapp.city.model.dto.response.CityResponseDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,4 +33,6 @@ public interface CityService {
     boolean existsBySlug(String slug);
 
     List<CityResponseDto> getCitiesByIds(List<Long> ids);
+
+    List<CityLookupDto> getLookupCities();
 }

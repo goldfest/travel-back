@@ -37,4 +37,7 @@ public interface CityRepository extends JpaRepository<City, Long> {
        OR LOWER(COALESCE(c.description, '')) LIKE LOWER(CONCAT('%', :query, '%'))
     """)
     Page<City> search(@Param("query") String query, Pageable pageable);
+
+    @Query("SELECT c FROM City c ORDER BY c.isPopular DESC, c.name ASC")
+    List<City> findAllForLookup();
 }

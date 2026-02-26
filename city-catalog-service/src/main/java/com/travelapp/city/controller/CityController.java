@@ -1,17 +1,21 @@
 package com.travelapp.city.controller;
 
 import com.travelapp.city.model.dto.request.CityRequestDto;
+import com.travelapp.city.model.dto.response.CityLookupDto;
 import com.travelapp.city.model.dto.response.CityResponseDto;
 import com.travelapp.city.service.CityService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
@@ -64,7 +68,8 @@ public class CityController {
     })
     @GetMapping("/{id}")
     public ResponseEntity<CityResponseDto> getCityById(
-            @Parameter(description = "ID города") @PathVariable Long id
+            @Parameter(description = "ID города", required = true)
+            @PathVariable("id") Long id
     ) {
         CityResponseDto city = cityService.getCityById(id);
         return ResponseEntity.ok(city);
@@ -90,20 +95,42 @@ public class CityController {
     })
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteCity(
-            @Parameter(description = "ID города") @PathVariable Long id
+            @Parameter(description = "ID города", required = true)
+            @PathVariable("id") Long id
     ) {
         cityService.deleteCity(id);
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Получить все города", description = "Получение списка всех городов с пагинацией")
+    @Operation(
+            summary = "Получить список городов",
+            description = "Возвращает все города с пагинацией. " +
+                    "Если передан параметр isPopular=true/false — возвращает только города по популярности."
+    )
     @GetMapping
-    public ResponseEntity<Page<CityResponseDto>> getAllCities(
-            @Parameter(description = "Параметры пагинации")
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+    public ResponseEntity<Page<CityResponseDto>> getCities(
+            @Parameter(description = "Фильтр по популярности (true/false). Если не передан — все города", example = "true")
+            @RequestParam(required = false) Boolean isPopular,
+
+            @Parameter(description = "Номер страницы (0..N)", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Размер страницы", example = "20")
+            @RequestParam(defaultValue = "20") int size,
+
+            @Parameter(description = "Поле сортировки (name, country, createdAt)", example = "name")
+            @RequestParam(defaultValue = "name") String sort,
+
+            @Parameter(description = "Направление сортировки (ASC/DESC)", example = "ASC")
+            @RequestParam(defaultValue = "ASC") Sort.Direction direction
     ) {
-        Page<CityResponseDto> cities = cityService.getAllCities(pageable);
-        return ResponseEntity.ok(cities);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sort));
+
+        Page<CityResponseDto> result = (isPopular == null)
+                ? cityService.getAllCities(pageable)
+                : cityService.getCitiesByPopularity(isPopular, pageable);
+
+        return ResponseEntity.ok(result);
     }
 
     @Operation(summary = "Получить популярные города", description = "Получение списка городов, отмеченных как популярные")
@@ -116,22 +143,55 @@ public class CityController {
     @Operation(summary = "Поиск городов", description = "Поиск городов по названию, стране или описанию")
     @GetMapping("/search")
     public ResponseEntity<Page<CityResponseDto>> searchCities(
-            @Parameter(description = "Поисковый запрос") @RequestParam String query,
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+            @Parameter(description = "Поисковый запрос", example = "moscow")
+            @RequestParam String query,
+
+            @Parameter(description = "Номер страницы (0..N)", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Размер страницы", example = "20")
+            @RequestParam(defaultValue = "20") int size,
+
+            @Parameter(description = "Поле сортировки (name, country, createdAt)", example = "name")
+            @RequestParam(defaultValue = "name") String sort,
+
+            @Parameter(description = "Направление сортировки", example = "ASC")
+            @RequestParam(defaultValue = "ASC") Sort.Direction direction
     ) {
+        if (!List.of("name", "country", "createdAt").contains(sort)) {
+            sort = "name";
+        }
+
+        Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size, Sort.by(direction, sort));
         Page<CityResponseDto> cities = cityService.searchCities(query, pageable);
         return ResponseEntity.ok(cities);
     }
 
-    @Operation(summary = "Получить города по коду страны", description = "Получение списка городов по ISO коду страны")
+    @Operation(
+            summary = "Получить города по коду страны",
+            description = "Возвращает города по ISO коду страны с пагинацией"
+    )
     @GetMapping("/country/{countryCode}")
     public ResponseEntity<Page<CityResponseDto>> getCitiesByCountryCode(
-            @Parameter(description = "Код страны (ISO 3166-1 alpha-2)")
+
+            @Parameter(description = "Код страны (ISO 3166-1 alpha-2)", example = "TR")
             @PathVariable
             @Pattern(regexp = "^[A-Za-z]{2}$", message = "Код страны должен состоять из 2 букв")
             String countryCode,
-            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable
+
+            @Parameter(description = "Номер страницы", example = "0")
+            @RequestParam(defaultValue = "0") int page,
+
+            @Parameter(description = "Размер страницы", example = "20")
+            @RequestParam(defaultValue = "20") int size,
+
+            @Parameter(description = "Поле сортировки (name, country, createdAt)", example = "name")
+            @RequestParam(defaultValue = "name") String sort,
+
+            @Parameter(description = "Направление сортировки (ASC/DESC)", example = "ASC")
+            @RequestParam(defaultValue = "ASC") Sort.Direction direction
     ) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sort));
         Page<CityResponseDto> cities = cityService.getCitiesByCountryCode(countryCode, pageable);
         return ResponseEntity.ok(cities);
     }
@@ -143,5 +203,27 @@ public class CityController {
     ) {
         boolean exists = cityService.existsBySlug(slug);
         return ResponseEntity.ok(exists);
+    }
+
+    @Operation(summary = "Получить города по списку ID", description = "Batch-эндпоинт для других сервисов")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Города найдены (возможны частичные совпадения)")
+    })
+    @PostMapping("/by-ids")
+    public ResponseEntity<List<CityResponseDto>> getCitiesByIds(
+            @RequestBody @NotEmpty(message = "Список id не должен быть пустым")
+            @Schema(example = "[1,2,3]") List<Long> ids
+    ) {
+        List<CityResponseDto> cities = cityService.getCitiesByIds(ids);
+        return ResponseEntity.ok(cities);
+    }
+
+    @Operation(summary = "Лёгкий список городов для выбора", description = "Для выпадающих списков/быстрых экранов")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Список получен")
+    })
+    @GetMapping("/lookup")
+    public ResponseEntity<List<CityLookupDto>> getLookupCities() {
+        return ResponseEntity.ok(cityService.getLookupCities());
     }
 }

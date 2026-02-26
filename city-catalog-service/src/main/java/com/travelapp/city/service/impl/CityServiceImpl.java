@@ -4,6 +4,7 @@ import com.travelapp.city.exception.ConflictException;
 import com.travelapp.city.exception.ResourceNotFoundException;
 import com.travelapp.city.mapper.CityMapper;
 import com.travelapp.city.model.dto.request.CityRequestDto;
+import com.travelapp.city.model.dto.response.CityLookupDto;
 import com.travelapp.city.model.dto.response.CityResponseDto;
 import com.travelapp.city.model.entity.City;
 import com.travelapp.city.repository.CityRepository;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -164,13 +166,24 @@ public class CityServiceImpl implements CityService {
     }
 
     @Override
+    @Cacheable(value = "citiesByIds", key = "T(java.util.Objects).hash(#ids)")
     public List<CityResponseDto> getCitiesByIds(List<Long> ids) {
         log.debug("Getting cities by IDs: {}", ids);
 
+        if (CollectionUtils.isEmpty(ids)) {
+            return List.of();
+        }
+
         List<City> cities = cityRepository.findAllById(ids);
-        return cities.stream()
-                .map(cityMapper::toDto)
-                .collect(Collectors.toList());
+        return cities.stream().map(cityMapper::toDto).collect(Collectors.toList());
+    }
+
+    @Override
+    @Cacheable(value = "cityLookup")
+    public List<CityLookupDto> getLookupCities() {
+        log.debug("Getting city lookup list");
+        List<City> cities = cityRepository.findAllForLookup();
+        return cityMapper.toLookupDtoList(cities);
     }
 
     private void normalize(CityRequestDto dto) {

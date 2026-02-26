@@ -19,7 +19,9 @@ public class CacheConfig {
                 "cities",
                 "popularCities",
                 "city",
-                "cityBySlug"
+                "cityBySlug",
+                "cityLookup",
+                "citiesByIds"
         ));
         return cacheManager;
     }
