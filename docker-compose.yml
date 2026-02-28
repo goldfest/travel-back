@@ -1,8 +1,13 @@
 version: "3.9"
 
 services:
+
+  # =========================
+  # AUTH DATABASE
+  # =========================
   auth-db:
     image: postgres:16
+    container_name: auth-db
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: postgres
@@ -15,10 +20,14 @@ services:
       timeout: 5s
       retries: 20
 
+  # =========================
+  # AUTH SERVICE
+  # =========================
   auth-service:
     build:
       context: ./auth-profile-service
       dockerfile: Dockerfile
+    container_name: auth-service
     depends_on:
       auth-db:
         condition: service_healthy
@@ -27,3 +36,65 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       JWT_SECRET: c3VwZXItc2VjcmV0LWtleS1mb3ItZGV2LXRlc3Q=
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 5558
+
+  # =========================
+  # ROUTE DATABASE
+  # =========================
+  route-db:
+    image: postgres:16
+    container_name: route-db
+    environment:
+      POSTGRES_DB: route_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5558
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d route_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # =========================
+  # REDIS (для оффлайн маршрутов)
+  # =========================
+  redis:
+    image: redis:7
+    container_name: travel-redis
+    ports:
+      - "6379:6379"
+
+  # =========================
+  # ROUTE PLANNING SERVICE
+  # =========================
+  route-service:
+    build:
+      context: ./route-planning-service
+      dockerfile: Dockerfile
+    container_name: route-service
+    depends_on:
+      route-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+      # PostgreSQL
+      SPRING_DATASOURCE_URL: jdbc:postgresql://route-db:5432/route_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 5558
+
+      # Redis
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+
+      # Если есть Feign для poi-service
+      APP_POI_SERVICE_URL: http://poi-service:8081
+
+    restart: unless-stopped
