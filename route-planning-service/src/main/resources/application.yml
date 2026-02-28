@@ -4,6 +4,16 @@ spring:
     name: route-planning-service
   profiles:
     active: dev
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+
+app:
+  offline:
+    ttl-days: 30
+    key-prefix: offline
+    storage-limit-bytes: 104857600 # 100 MB
 
 server:
   port: 8082

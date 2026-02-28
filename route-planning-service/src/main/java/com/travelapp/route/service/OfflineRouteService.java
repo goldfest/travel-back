@@ -1,7 +1,10 @@
 package com.travelapp.route.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travelapp.route.client.PoiClient;
+import com.travelapp.route.exception.ResourceNotFoundException;
+import com.travelapp.route.model.dto.offline.OfflineRouteMeta;
 import com.travelapp.route.model.dto.response.PoiResponse;
 import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.model.entity.Route;
@@ -10,12 +13,19 @@ import com.travelapp.route.model.entity.RoutePoint;
 import com.travelapp.route.repository.RouteRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -29,165 +39,224 @@ public class OfflineRouteService {
     private final PoiClient poiClient;
     private final ObjectMapper objectMapper;
 
-    // In-memory хранилище для оффлайн маршрутов (в реальном приложении используем Redis или БД)
-    private final Map<String, byte[]> offlineRouteCache = new HashMap<>();
+    // RedisTemplates
+    private final RedisTemplate<String, byte[]> offlineBinaryRedisTemplate;
+    private final RedisTemplate<String, String> offlineStringRedisTemplate;
 
-    public byte[] prepareOfflineRouteData(Long userId, Long routeId,
-                                          boolean includePoiDetails,
-                                          boolean includeMapData) {
+    @Value("${app.offline.ttl-days:30}")
+    private int ttlDays;
+
+    @Value("${app.offline.key-prefix:offline}")
+    private String keyPrefix;
+
+    @Value("${app.offline.storage-limit-bytes:104857600}")
+    private long storageLimitBytes; // 100 MB по умолчанию
+
+    public byte[] prepareOfflineRouteData(Long userId, Long routeId, boolean includePoiDetails, boolean includeMapData) {
         log.debug("Preparing offline data for route {} for user {}", routeId, userId);
 
         Route route = routeRepository.findByUserIdAndId(userId, routeId)
-                .orElseThrow(() -> new RuntimeException("Маршрут не найден"));
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-             ZipOutputStream zos = new ZipOutputStream(baos)) {
+        // 1) Собираем POI batch’ем (чтобы не было N+1 и чтобы offline был реально с POI)
+        Map<Long, PoiResponse> poiMap = loadPoisAsMap(route);
 
-            // 1. Основная информация о маршруте
-            String routeJson = objectMapper.writeValueAsString(convertToOfflineFormat(route));
-            addToZip(zos, "route.json", routeJson.getBytes(StandardCharsets.UTF_8));
+        // 2) Собираем ZIP
+        byte[] zipData = buildZip(route, poiMap, includePoiDetails, includeMapData, userId);
 
-            // 2. Детали POI, если нужно
-            if (includePoiDetails) {
-                Map<String, Object> poiDetails = collectPoiDetails(route);
-                String poiJson = objectMapper.writeValueAsString(poiDetails);
-                addToZip(zos, "poi_details.json", poiJson.getBytes(StandardCharsets.UTF_8));
-            }
+        // 3) Сохраняем в Redis + TTL
+        Duration ttl = Duration.ofDays(ttlDays);
 
-            // 3. Данные для карты, если нужно
-            if (includeMapData) {
-                String mapData = generateMapData(route);
-                addToZip(zos, "map_data.json", mapData.getBytes(StandardCharsets.UTF_8));
-            }
+        String zipKey = routeZipKey(userId, routeId);
+        String metaKey = routeMetaKey(userId, routeId);
 
-            // 4. Метаданные
-            Map<String, Object> metadata = createMetadata(userId, route);
-            String metadataJson = objectMapper.writeValueAsString(metadata);
-            addToZip(zos, "metadata.json", metadataJson.getBytes(StandardCharsets.UTF_8));
+        OfflineRouteMeta meta = OfflineRouteMeta.builder()
+                .userId(userId)
+                .routeId(routeId)
+                .routeName(route.getName())
+                .cityId(route.getCityId())
+                .includesPoiDetails(includePoiDetails)
+                .includesMapData(includeMapData)
+                .sizeBytes(zipData.length)
+                .downloadedAt(Instant.now())
+                .format("travelapp-offline-v1")
+                .version("1.0")
+                .build();
 
-            zos.finish();
-            byte[] zipData = baos.toByteArray();
-
-            // Кэшируем оффлайн данные
-            String cacheKey = getCacheKey(userId, routeId);
-            offlineRouteCache.put(cacheKey, zipData);
-
-            log.info("Offline data prepared for route {}, size: {} bytes", routeId, zipData.length);
-            return zipData;
-
-        } catch (IOException e) {
-            log.error("Error preparing offline data for route {}", routeId, e);
-            throw new RuntimeException("Ошибка при подготовке оффлайн данных", e);
+        // лимит хранилища (простая проверка перед записью)
+        long usage = getUserStorageUsageBytes(userId);
+        if (usage + zipData.length > storageLimitBytes) {
+            throw new IllegalStateException("Превышен лимит оффлайн хранилища");
         }
+
+        offlineBinaryRedisTemplate.opsForValue().set(zipKey, zipData, ttl);
+        offlineStringRedisTemplate.opsForValue().set(metaKey, toJson(meta), ttl);
+
+        log.info("Offline data prepared route {}, size={} bytes, ttl={} days", routeId, zipData.length, ttlDays);
+        return zipData;
     }
 
     @Transactional(readOnly = true)
     public List<RouteResponse> getOfflineRoutes(Long userId) {
         log.debug("Getting offline routes for user {}", userId);
 
-        List<RouteResponse> offlineRoutes = new ArrayList<>();
+        // Ищем все meta ключи пользователя
+        String pattern = routeMetaKey(userId, "*");
+        List<String> metaKeys = scanKeys(pattern);
 
-        // Ищем маршруты, которые есть в оффлайн кэше
-        for (String cacheKey : offlineRouteCache.keySet()) {
-            if (cacheKey.startsWith(userId + ":")) {
-                Long routeId = extractRouteIdFromCacheKey(cacheKey);
+        List<RouteResponse> result = new ArrayList<>();
+        for (String metaKey : metaKeys) {
+            String metaJson = offlineStringRedisTemplate.opsForValue().get(metaKey);
+            if (metaJson == null) continue;
 
-                routeRepository.findByUserIdAndId(userId, routeId).ifPresent(route -> {
-                    RouteResponse response = new RouteResponse();
-                    response.setId(route.getId());
-                    response.setName(route.getName());
-                    response.setDescription(route.getDescription());
-                    response.setDistanceKm(route.getDistanceKm());
-                    response.setDurationMin(route.getDurationMin());
-                    response.setCreatedAt(route.getCreatedAt());
-
-                    // Получаем размер оффлайн данных
-                    byte[] data = offlineRouteCache.get(cacheKey);
-                    if (data != null) {
-                        Map<String, Object> offlineInfo = new HashMap<>();
-                        offlineInfo.put("sizeBytes", data.length);
-                        offlineInfo.put("downloadDate", new Date());
-                        response.setAdditionalProperties(offlineInfo);
-                    }
-
-                    offlineRoutes.add(response);
-                });
+            OfflineRouteMeta meta;
+            try {
+                meta = objectMapper.readValue(metaJson, OfflineRouteMeta.class);
+            } catch (Exception e) {
+                log.warn("Bad offline meta json for key={}", metaKey, e);
+                continue;
             }
+
+            // Подтягиваем основной route из БД (если надо)
+            routeRepository.findByUserIdAndId(userId, meta.getRouteId()).ifPresent(route -> {
+                RouteResponse response = new RouteResponse();
+                response.setId(route.getId());
+                response.setName(route.getName());
+                response.setDescription(route.getDescription());
+                response.setDistanceKm(route.getDistanceKm());
+                response.setDurationMin(route.getDurationMin());
+                response.setCreatedAt(route.getCreatedAt());
+
+                Map<String, Object> offlineInfo = new HashMap<>();
+                offlineInfo.put("sizeBytes", meta.getSizeBytes());
+                offlineInfo.put("downloadedAt", meta.getDownloadedAt());
+                offlineInfo.put("includesPoiDetails", meta.isIncludesPoiDetails());
+                offlineInfo.put("includesMapData", meta.isIncludesMapData());
+                offlineInfo.put("format", meta.getFormat());
+                offlineInfo.put("version", meta.getVersion());
+
+                response.setAdditionalProperties(offlineInfo);
+                result.add(response);
+            });
         }
 
-        log.info("Found {} offline routes for user {}", offlineRoutes.size(), userId);
-        return offlineRoutes;
+        log.info("Found {} offline routes for user {}", result.size(), userId);
+        return result;
     }
 
     public void removeOfflineRoute(Long userId, Long routeId) {
-        String cacheKey = getCacheKey(userId, routeId);
+        String zipKey = routeZipKey(userId, routeId);
+        String metaKey = routeMetaKey(userId, routeId);
 
-        if (offlineRouteCache.containsKey(cacheKey)) {
-            byte[] removedData = offlineRouteCache.remove(cacheKey);
-            log.info("Removed offline route {} for user {}, freed {} bytes",
-                    routeId, userId, removedData != null ? removedData.length : 0);
-        } else {
-            log.warn("Offline route {} not found for user {}", routeId, userId);
-        }
+        Boolean z = offlineBinaryRedisTemplate.delete(zipKey);
+        Boolean m = offlineStringRedisTemplate.delete(metaKey);
+
+        log.info("Removed offline route {} for user {}, zipDeleted={}, metaDeleted={}", routeId, userId, z, m);
     }
 
-    public Object getStorageUsage(Long userId) {
-        long totalSize = 0;
-        int routeCount = 0;
-
-        for (Map.Entry<String, byte[]> entry : offlineRouteCache.entrySet()) {
-            if (entry.getKey().startsWith(userId + ":")) {
-                totalSize += entry.getValue().length;
-                routeCount++;
-            }
-        }
+    public Map<String, Object> getStorageUsage(Long userId) {
+        long totalSize = getUserStorageUsageBytes(userId);
+        int routeCount = countUserOfflineRoutes(userId);
 
         Map<String, Object> usageInfo = new HashMap<>();
         usageInfo.put("userId", userId);
         usageInfo.put("totalRoutes", routeCount);
         usageInfo.put("totalSizeBytes", totalSize);
         usageInfo.put("totalSizeMB", String.format("%.2f", totalSize / (1024.0 * 1024.0)));
-        usageInfo.put("limitBytes", 100 * 1024 * 1024); // 100 MB лимит
-        usageInfo.put("usagePercentage", (totalSize * 100.0) / (100 * 1024 * 1024));
-
+        usageInfo.put("limitBytes", storageLimitBytes);
+        usageInfo.put("usagePercentage", storageLimitBytes == 0 ? 0 : (totalSize * 100.0) / storageLimitBytes);
+        usageInfo.put("ttlDays", ttlDays);
         return usageInfo;
     }
 
     public void syncOfflineData(Long userId) {
-        log.info("Syncing offline data for user {}", userId);
-
-        // В реальном приложении здесь была бы синхронизация с сервером
-        // Например, загрузка обновленных данных о маршрутах
-
-        // Пока просто логируем
-        int syncedCount = 0;
-
-        for (String cacheKey : offlineRouteCache.keySet()) {
-            if (cacheKey.startsWith(userId + ":")) {
-                syncedCount++;
-                Long routeId = extractRouteIdFromCacheKey(cacheKey);
-                log.debug("Syncing route {} for user {}", routeId, userId);
-
-                // TODO: Реализовать логику синхронизации
-                // 1. Проверить обновления на сервере
-                // 2. Обновить оффлайн данные если нужно
-                // 3. Уведомить пользователя об изменениях
-            }
-        }
-
-        log.info("Synced {} offline routes for user {}", syncedCount, userId);
+        // В дипломе можно оставить stub, но корректно.
+        // Здесь стоит: пересобрать zip если route.updatedAt > meta.downloadedAt, но это требует доп. логики.
+        log.info("Sync offline data requested for user {}", userId);
     }
 
     public Optional<byte[]> getOfflineRouteData(Long userId, Long routeId) {
-        String cacheKey = getCacheKey(userId, routeId);
-        return Optional.ofNullable(offlineRouteCache.get(cacheKey));
+        String zipKey = routeZipKey(userId, routeId);
+        return Optional.ofNullable(offlineBinaryRedisTemplate.opsForValue().get(zipKey));
     }
 
+    // ------------------------
     // Вспомогательные методы
+    // ------------------------
 
-    private Map<String, Object> convertToOfflineFormat(Route route) {
-        Map<String, Object> offlineRoute = new HashMap<>();
+    private byte[] buildZip(Route route,
+                            Map<Long, PoiResponse> poiMap,
+                            boolean includePoiDetails,
+                            boolean includeMapData,
+                            Long userId) {
 
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             ZipOutputStream zos = new ZipOutputStream(baos)) {
+
+            // 1) route.json
+            String routeJson = objectMapper.writeValueAsString(convertToOfflineFormat(route, poiMap));
+            addToZip(zos, "route.json", routeJson.getBytes(StandardCharsets.UTF_8));
+
+            // 2) poi_details.json
+            if (includePoiDetails) {
+                Map<String, Object> poiDetails = convertPoiDetails(poiMap);
+                String poiJson = objectMapper.writeValueAsString(poiDetails);
+                addToZip(zos, "poi_details.json", poiJson.getBytes(StandardCharsets.UTF_8));
+            }
+
+            // 3) map_data.json
+            if (includeMapData) {
+                String mapJson = generateMapData(route, poiMap);
+                addToZip(zos, "map_data.json", mapJson.getBytes(StandardCharsets.UTF_8));
+            }
+
+            // 4) metadata.json (внутрь архива тоже кладём)
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("version", "1.0");
+            metadata.put("format", "travelapp-offline-v1");
+            metadata.put("generatedAt", Instant.now().toString());
+            metadata.put("userId", userId);
+            metadata.put("routeId", route.getId());
+            metadata.put("routeName", route.getName());
+            metadata.put("cityId", route.getCityId());
+            metadata.put("includesPoiDetails", includePoiDetails);
+            metadata.put("includesMapData", includeMapData);
+            metadata.put("compression", "zip");
+            metadata.put("encoding", "UTF-8");
+
+            addToZip(zos, "metadata.json", objectMapper.writeValueAsBytes(metadata));
+
+            zos.finish();
+            return baos.toByteArray();
+
+        } catch (IOException e) {
+            log.error("Error preparing offline zip for route {}", route.getId(), e);
+            throw new RuntimeException("Ошибка при подготовке оффлайн данных", e);
+        }
+    }
+
+    private Map<Long, PoiResponse> loadPoisAsMap(Route route) {
+        Set<Long> poiIds = new HashSet<>();
+        if (route.getRouteDays() != null) {
+            for (RouteDay day : route.getRouteDays()) {
+                if (day.getRoutePoints() != null) {
+                    for (RoutePoint p : day.getRoutePoints()) {
+                        poiIds.add(p.getPoiId());
+                    }
+                }
+            }
+        }
+
+        if (poiIds.isEmpty()) return Map.of();
+
+        List<PoiResponse> pois = poiClient.getPoisBatch(new ArrayList<>(poiIds));
+        Map<Long, PoiResponse> map = new HashMap<>();
+        for (PoiResponse p : pois) map.put(p.getId(), p);
+        return map;
+    }
+
+    private Map<String, Object> convertToOfflineFormat(Route route, Map<Long, PoiResponse> poiMap) {
+        Map<String, Object> offlineRoute = new LinkedHashMap<>();
         offlineRoute.put("id", route.getId());
         offlineRoute.put("name", route.getName());
         offlineRoute.put("description", route.getDescription());
@@ -197,103 +266,92 @@ public class OfflineRouteService {
         offlineRoute.put("createdAt", route.getCreatedAt());
         offlineRoute.put("updatedAt", route.getUpdatedAt());
 
-        // Дни маршрута
-        List<Map<String, Object>> offlineDays = new ArrayList<>();
-        for (RouteDay day : route.getRouteDays()) {
-            Map<String, Object> offlineDay = new HashMap<>();
-            offlineDay.put("dayNumber", day.getDayNumber());
-            offlineDay.put("description", day.getDescription());
-            offlineDay.put("plannedStart", day.getPlannedStart());
-            offlineDay.put("plannedEnd", day.getPlannedEnd());
+        List<Map<String, Object>> days = new ArrayList<>();
+        if (route.getRouteDays() != null) {
+            for (RouteDay day : route.getRouteDays()) {
+                Map<String, Object> d = new LinkedHashMap<>();
+                d.put("dayNumber", day.getDayNumber());
+                d.put("description", day.getDescription());
+                d.put("plannedStart", day.getPlannedStart());
+                d.put("plannedEnd", day.getPlannedEnd());
 
-            // Точки маршрута
-            List<Map<String, Object>> offlinePoints = new ArrayList<>();
-            for (RoutePoint point : day.getRoutePoints()) {
-                Map<String, Object> offlinePoint = new HashMap<>();
-                offlinePoint.put("orderIndex", point.getOrderIndex());
-                offlinePoint.put("poiId", point.getPoiId());
-                offlinePoint.put("estimatedDuration", point.getEstimatedDuration());
+                List<Map<String, Object>> points = new ArrayList<>();
+                if (day.getRoutePoints() != null) {
+                    for (RoutePoint point : day.getRoutePoints()) {
+                        Map<String, Object> p = new LinkedHashMap<>();
+                        p.put("orderIndex", point.getOrderIndex());
+                        p.put("poiId", point.getPoiId());
+                        p.put("estimatedDuration", point.getEstimatedDuration());
 
-                // Базовая информация о POI
-                if (point.isPoiDetailsLoaded()) {
-                    Map<String, Object> poiInfo = new HashMap<>();
-                    poiInfo.put("name", point.getPoiName());
-                    poiInfo.put("address", point.getPoiAddress());
-                    poiInfo.put("latitude", point.getPoiLatitude());
-                    poiInfo.put("longitude", point.getPoiLongitude());
-                    poiInfo.put("type", point.getPoiType());
-                    offlinePoint.put("poiInfo", poiInfo);
+                        PoiResponse poi = poiMap.get(point.getPoiId());
+                        if (poi != null) {
+                            Map<String, Object> poiInfo = new LinkedHashMap<>();
+                            poiInfo.put("name", poi.getName());
+                            poiInfo.put("address", poi.getAddress());
+                            poiInfo.put("latitude", poi.getLatitude());
+                            poiInfo.put("longitude", poi.getLongitude());
+                            poiInfo.put("type", poi.getType());
+                            poiInfo.put("coverUrl", poi.getCoverUrl());
+                            p.put("poiInfo", poiInfo);
+                        }
+                        points.add(p);
+                    }
                 }
-
-                offlinePoints.add(offlinePoint);
+                d.put("points", points);
+                days.add(d);
             }
-            offlineDay.put("points", offlinePoints);
-            offlineDays.add(offlineDay);
         }
-        offlineRoute.put("days", offlineDays);
 
+        offlineRoute.put("days", days);
         return offlineRoute;
     }
 
-    private Map<String, Object> collectPoiDetails(Route route) {
-        Map<String, Object> poiDetails = new HashMap<>();
-        Set<Long> poiIds = new HashSet<>();
-
-        // Собираем все POI ID из маршрута
-        for (RouteDay day : route.getRouteDays()) {
-            for (RoutePoint point : day.getRoutePoints()) {
-                poiIds.add(point.getPoiId());
-            }
+    private Map<String, Object> convertPoiDetails(Map<Long, PoiResponse> poiMap) {
+        Map<Long, Map<String, Object>> detailed = new LinkedHashMap<>();
+        for (PoiResponse poi : poiMap.values()) {
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("name", poi.getName());
+            d.put("description", poi.getDescription());
+            d.put("address", poi.getAddress());
+            d.put("latitude", poi.getLatitude());
+            d.put("longitude", poi.getLongitude());
+            d.put("phone", poi.getPhone());
+            d.put("siteUrl", poi.getSiteUrl());
+            d.put("priceLevel", poi.getPriceLevel());
+            d.put("averageRating", poi.getAverageRating());
+            d.put("type", poi.getType());
+            d.put("coverUrl", poi.getCoverUrl());
+            detailed.put(poi.getId(), d);
         }
 
-        // Получаем детальную информацию о каждом POI
-        if (!poiIds.isEmpty()) {
-            List<PoiResponse> pois = poiClient.getPoisBatch(new ArrayList<>(poiIds));
-
-            Map<Long, Map<String, Object>> detailedPois = new HashMap<>();
-            for (PoiResponse poi : pois) {
-                Map<String, Object> poiDetail = new HashMap<>();
-                poiDetail.put("name", poi.getName());
-                poiDetail.put("description", poi.getDescription());
-                poiDetail.put("address", poi.getAddress());
-                poiDetail.put("latitude", poi.getLatitude());
-                poiDetail.put("longitude", poi.getLongitude());
-                poiDetail.put("phone", poi.getPhone());
-                poiDetail.put("siteUrl", poi.getSiteUrl());
-                poiDetail.put("priceLevel", poi.getPriceLevel());
-                poiDetail.put("averageRating", poi.getAverageRating());
-                poiDetail.put("type", poi.getType());
-                poiDetail.put("coverUrl", poi.getCoverUrl());
-
-                detailedPois.put(poi.getId(), poiDetail);
-            }
-
-            poiDetails.put("pois", detailedPois);
-        }
-
-        return poiDetails;
+        Map<String, Object> root = new LinkedHashMap<>();
+        root.put("pois", detailed);
+        return root;
     }
 
-    private String generateMapData(Route route) {
-        // Генерируем упрощенные данные для отображения на карте
-        Map<String, Object> mapData = new HashMap<>();
+    private String generateMapData(Route route, Map<Long, PoiResponse> poiMap) {
+        Map<String, Object> mapData = new LinkedHashMap<>();
         List<Map<String, Object>> points = new ArrayList<>();
 
-        for (RouteDay day : route.getRouteDays()) {
-            for (RoutePoint point : day.getRoutePoints()) {
-                Map<String, Object> mapPoint = new HashMap<>();
-                mapPoint.put("day", day.getDayNumber());
-                mapPoint.put("order", point.getOrderIndex());
-                mapPoint.put("poiId", point.getPoiId());
+        if (route.getRouteDays() != null) {
+            for (RouteDay day : route.getRouteDays()) {
+                if (day.getRoutePoints() != null) {
+                    for (RoutePoint point : day.getRoutePoints()) {
+                        Map<String, Object> mp = new LinkedHashMap<>();
+                        mp.put("day", day.getDayNumber());
+                        mp.put("order", point.getOrderIndex());
+                        mp.put("poiId", point.getPoiId());
 
-                if (point.isPoiDetailsLoaded()) {
-                    mapPoint.put("name", point.getPoiName());
-                    mapPoint.put("lat", point.getPoiLatitude());
-                    mapPoint.put("lng", point.getPoiLongitude());
-                    mapPoint.put("type", point.getPoiType());
+                        PoiResponse poi = poiMap.get(point.getPoiId());
+                        if (poi != null) {
+                            mp.put("name", poi.getName());
+                            mp.put("lat", poi.getLatitude());
+                            mp.put("lng", poi.getLongitude());
+                            mp.put("type", poi.getType());
+                        }
+                        points.add(mp);
+                    }
                 }
-
-                points.add(mapPoint);
             }
         }
 
@@ -306,28 +364,10 @@ public class OfflineRouteService {
 
         try {
             return objectMapper.writeValueAsString(mapData);
-        } catch (IOException e) {
-            log.error("Error generating map data", e);
+        } catch (JsonProcessingException e) {
+            log.error("Error generating map data json", e);
             return "{}";
         }
-    }
-
-    private Map<String, Object> createMetadata(Long userId, Route route) {
-        Map<String, Object> metadata = new HashMap<>();
-
-        metadata.put("version", "1.0");
-        metadata.put("format", "travelapp-offline-v1");
-        metadata.put("generatedAt", new Date());
-        metadata.put("userId", userId);
-        metadata.put("routeId", route.getId());
-        metadata.put("routeName", route.getName());
-        metadata.put("cityId", route.getCityId());
-        metadata.put("includesPoiDetails", true);
-        metadata.put("includesMapData", true);
-        metadata.put("compression", "zip");
-        metadata.put("encoding", "UTF-8");
-
-        return metadata;
     }
 
     private void addToZip(ZipOutputStream zos, String filename, byte[] data) throws IOException {
@@ -337,56 +377,84 @@ public class OfflineRouteService {
         zos.closeEntry();
     }
 
-    private String getCacheKey(Long userId, Long routeId) {
-        return userId + ":" + routeId;
-    }
-
-    private Long extractRouteIdFromCacheKey(String cacheKey) {
-        String[] parts = cacheKey.split(":");
-        return parts.length > 1 ? Long.parseLong(parts[1]) : null;
-    }
-
-    private Double calculateCenterLat(List<Map<String, Object>> points) {
+    private double calculateCenterLat(List<Map<String, Object>> points) {
         if (points.isEmpty()) return 0.0;
-
         double sum = 0.0;
         int count = 0;
-
-        for (Map<String, Object> point : points) {
-            Object lat = point.get("lat");
-            if (lat instanceof Number) {
-                sum += ((Number) lat).doubleValue();
-                count++;
-            }
+        for (Map<String, Object> p : points) {
+            Object lat = p.get("lat");
+            if (lat instanceof Number n) { sum += n.doubleValue(); count++; }
         }
-
-        return count > 0 ? sum / count : 0.0;
+        return count == 0 ? 0.0 : sum / count;
     }
 
-    private Double calculateCenterLng(List<Map<String, Object>> points) {
+    private double calculateCenterLng(List<Map<String, Object>> points) {
         if (points.isEmpty()) return 0.0;
-
         double sum = 0.0;
         int count = 0;
-
-        for (Map<String, Object> point : points) {
-            Object lng = point.get("lng");
-            if (lng instanceof Number) {
-                sum += ((Number) lng).doubleValue();
-                count++;
-            }
+        for (Map<String, Object> p : points) {
+            Object lng = p.get("lng");
+            if (lng instanceof Number n) { sum += n.doubleValue(); count++; }
         }
-
-        return count > 0 ? sum / count : 0.0;
+        return count == 0 ? 0.0 : sum / count;
     }
 
-    private Integer calculateZoomLevel(List<Map<String, Object>> points) {
+    private int calculateZoomLevel(List<Map<String, Object>> points) {
         if (points.size() < 2) return 12;
-
-        // Простая логика для определения уровня зума
         if (points.size() <= 5) return 13;
         if (points.size() <= 10) return 12;
         if (points.size() <= 20) return 11;
         return 10;
+    }
+
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Ошибка сериализации JSON", e);
+        }
+    }
+
+    private String routeZipKey(Long userId, Object routeId) {
+        return keyPrefix + ":route:" + userId + ":" + routeId;
+    }
+
+    private String routeMetaKey(Long userId, Object routeId) {
+        return keyPrefix + ":meta:" + userId + ":" + routeId;
+    }
+
+    private List<String> scanKeys(String pattern) {
+        return offlineStringRedisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            List<String> keys = new ArrayList<>();
+            ScanOptions options = ScanOptions.scanOptions().match(pattern).count(500).build();
+            try (Cursor<byte[]> cursor = connection.scan(options)) {
+                while (cursor.hasNext()) {
+                    keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                }
+            }
+            return keys;
+        });
+    }
+
+    private long getUserStorageUsageBytes(Long userId) {
+        // Суммируем sizeBytes из meta (правильнее, чем дергать ZIP длину)
+        String pattern = routeMetaKey(userId, "*");
+        List<String> metaKeys = scanKeys(pattern);
+
+        long sum = 0;
+        for (String metaKey : metaKeys) {
+            String metaJson = offlineStringRedisTemplate.opsForValue().get(metaKey);
+            if (metaJson == null) continue;
+            try {
+                OfflineRouteMeta meta = objectMapper.readValue(metaJson, OfflineRouteMeta.class);
+                sum += meta.getSizeBytes();
+            } catch (Exception ignored) {}
+        }
+        return sum;
+    }
+
+    private int countUserOfflineRoutes(Long userId) {
+        String pattern = routeMetaKey(userId, "*");
+        return scanKeys(pattern).size();
     }
 }
