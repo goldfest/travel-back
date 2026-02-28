@@ -25,6 +25,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -478,7 +480,7 @@ public class RouteServiceImpl implements RouteService {
         }
 
         route.setDurationMin(totalDuration);
-        route.setDistanceKm(totalDistance);
+        route.setDistanceKm(BigDecimal.valueOf(totalDistance).setScale(2, RoundingMode.HALF_UP));
 
         routeRepository.save(route);
     }

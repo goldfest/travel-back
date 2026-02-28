@@ -8,6 +8,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +45,7 @@ public class Route {
     private String optimizationMode;
 
     @Column(name = "distance_km", precision = 8, scale = 2)
-    private Double distanceKm;
+    private BigDecimal distanceKm;
 
     @Column(name = "duration_min")
     private Integer durationMin;

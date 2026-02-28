@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -27,7 +28,7 @@ public class RouteUpdateRequest {
     private TransportMode transportMode;
 
     @Schema(description = "Расстояние в километрах")
-    private Double distanceKm;
+    private BigDecimal distanceKm;
 
     @Schema(description = "Продолжительность в минутах")
     private Integer durationMin;

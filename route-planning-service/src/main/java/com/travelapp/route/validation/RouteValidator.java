@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.Errors;
 import org.springframework.validation.Validator;
 
+import java.math.BigDecimal;
+
 @Component
 @Slf4j
 public class RouteValidator implements Validator {
@@ -71,9 +73,8 @@ public class RouteValidator implements Validator {
                     "Флаг архивации должен быть 0 или 1");
         }
 
-        if (request.getDistanceKm() != null && request.getDistanceKm() < 0) {
-            errors.rejectValue("distanceKm", "distanceKm.positive",
-                    "Расстояние должно быть положительным");
+        if (request.getDistanceKm() != null && request.getDistanceKm().compareTo(BigDecimal.ZERO) < 0) {
+            errors.rejectValue("distanceKm", "distanceKm.positive", "Расстояние должно быть положительным");
         }
 
         if (request.getDurationMin() != null && request.getDurationMin() < 0) {

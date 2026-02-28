@@ -44,7 +44,7 @@ services:
   # ROUTE DATABASE
   # =========================
   route-db:
-    image: postgres:16
+    image: postgis/postgis:16-3.4
     container_name: route-db
     environment:
       POSTGRES_DB: route_db

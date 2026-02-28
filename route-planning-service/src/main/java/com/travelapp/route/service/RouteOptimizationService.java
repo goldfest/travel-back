@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.util.CombinatoricsUtils;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -326,7 +328,7 @@ public class RouteOptimizationService {
             }
         }
 
-        route.setDistanceKm(Math.round(totalDistance * 100.0) / 100.0);
+        route.setDistanceKm(BigDecimal.valueOf(totalDistance).setScale(2, RoundingMode.HALF_UP));
         route.setDurationMin(totalDuration);
     }
 

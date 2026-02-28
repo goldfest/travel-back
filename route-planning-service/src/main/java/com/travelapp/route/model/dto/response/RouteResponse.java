@@ -6,6 +6,7 @@ import com.travelapp.route.model.entity.Route.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -37,7 +38,7 @@ public class RouteResponse {
     private String optimizationMode;
 
     @Schema(description = "Расстояние в километрах", example = "15.5")
-    private Double distanceKm;
+    private BigDecimal distanceKm;
 
     @Schema(description = "Продолжительность в минутах", example = "360")
     private Integer durationMin;
