@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://city-db:5432/city_db
+    username: postgres
+    password: 1234
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
