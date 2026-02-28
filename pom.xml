@@ -71,6 +71,15 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- Spring Cloud BOM -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2023.0.0</version> <!-- Соответствует Spring Boot 3.2.x -->
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- Общие зависимости для всех микросервисов -->
             <dependency>
                 <groupId>org.projectlombok</groupId>

@@ -1,12 +1,15 @@
 package com.travelapp.route.model.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.travelapp.route.model.entity.Route.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Schema(description = "Ответ с информацией о маршруте")
@@ -73,4 +76,26 @@ public class RouteResponse {
 
     @Schema(description = "Список дней маршрута")
     private List<RouteDayResponse> routeDays;
+
+    @Schema(description = "Дополнительные свойства (для расширяемости)")
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private Map<String, Object> additionalProperties = new HashMap<>();
+
+    // Метод для добавления дополнительных свойств
+    public void addAdditionalProperty(String key, Object value) {
+        if (additionalProperties == null) {
+            additionalProperties = new HashMap<>();
+        }
+        additionalProperties.put(key, value);
+    }
+
+    // Метод для установки дополнительных свойств
+    public void setAdditionalProperties(Map<String, Object> additionalProperties) {
+        this.additionalProperties = additionalProperties;
+    }
+
+    // Метод для получения дополнительных свойств
+    public Map<String, Object> getAdditionalProperties() {
+        return additionalProperties;
+    }
 }

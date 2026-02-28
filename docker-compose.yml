@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  auth-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5558
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  auth-service:
+    build:
+      context: ./auth-profile-service
+      dockerfile: Dockerfile
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      JWT_SECRET: c3VwZXItc2VjcmV0LWtleS1mb3ItZGV2LXRlc3Q=

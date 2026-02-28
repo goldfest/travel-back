@@ -91,44 +91,34 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse login(LoginRequest request) {
         log.info("Login attempt for email: {}", request.getEmail());
 
-        // Аутентификация
         Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
-                        request.getPassword()
-                )
+                new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
         );
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        // Получаем пользователя
-        User user = (User) authentication.getPrincipal();
+        String email = authentication.getName();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
 
-        // Проверяем блокировку
-        if (user.getIsBlocked()) {
+        if (Boolean.TRUE.equals(user.getIsBlocked())) {
             throw new UnauthorizedException("User account is blocked");
         }
 
-        // Проверяем статус
         if (user.getStatus() != User.UserStatus.ACTIVE) {
             throw new UnauthorizedException("User account is not active");
         }
 
-        // Генерируем токены
         String accessToken = jwtService.generateToken(user);
         String refreshToken = refreshTokenService.createRefreshToken(user).getToken();
 
-        // Обновляем время последнего входа
         userService.updateLastLogin(user.getId());
 
-        UserResponse userResponse = userMapper.toResponse(user);
-
-        log.info("User logged in successfully: {}", user.getId());
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
                 .expiresIn(jwtService.getJwtExpiration())
-                .user(userResponse)
+                .user(userMapper.toResponse(user))
                 .build();
     }
 
