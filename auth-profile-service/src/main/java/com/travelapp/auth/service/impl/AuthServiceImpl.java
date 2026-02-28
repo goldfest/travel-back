@@ -60,10 +60,10 @@ public class AuthServiceImpl implements AuthService {
                 .username(request.getUsername())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .phone(request.getPhone())
+                .preferencesJson("{}")
                 .role(User.UserRole.USER)
                 .status(User.UserStatus.ACTIVE)
                 .isBlocked(false)
-                .createdAt(LocalDateTime.now())
                 .build();
 
         User savedUser = userRepository.save(user);

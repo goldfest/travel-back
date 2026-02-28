@@ -34,9 +34,11 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/auth/**",
+                                "/auth/**",          // если matcher видит путь без context-path
+                                "/api/auth/**",      // если видит с context-path
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
+                                "/v3/api-docs/**",
                                 "/api-docs/**"
                         ).permitAll()
                         .anyRequest().authenticated()

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
     last_login_at TIMESTAMP,
     home_city_id BIGINT,
-    preferences_json JSONB,
+    preferences_json jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );

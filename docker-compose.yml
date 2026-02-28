@@ -35,7 +35,7 @@ services:
       - "8084:8084"
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      JWT_SECRET: c3VwZXItc2VjcmV0LWtleS1mb3ItZGV2LXRlc3Q=
+      JWT_SECRET: 0v0gJHq7OqJx9nQb0m2Jwq9s0xk6cV8vHcY0kJt9bQw=
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: 5558
