@@ -142,4 +142,79 @@ services:
 
       REDIS_HOST: redis
       REDIS_PORT: 6379
+  # =========================
+  # NOTIFICATION DATABASE
+  # =========================
+  notification-db:
+    image: postgres:16
+    container_name: notification-db
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5558
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d notification_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
+  # =========================
+  # RABBITMQ
+  # =========================
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: travel-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: [ "CMD-SHELL", "rabbitmq-diagnostics -q ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # =========================
+  # NOTIFICATION SERVICE
+  # =========================
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8086
+
+      # PostgreSQL
+      DB_URL: jdbc:postgresql://notification-db:5432/notification_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: 5558
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+
+      # Mail (если реально не настроено — лучше выключить)
+      NOTIFICATION_EMAIL_ENABLED: "false"
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""

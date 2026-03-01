@@ -1,44 +1,54 @@
-# notification-service/src/main/resources/application.yml
-
 spring:
   application:
     name: notification-service
 
-  profiles:
-    active: dev
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/notification_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:5558}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
 
   jpa:
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        format_sql: true
         jdbc:
           batch_size: 20
-    show-sql: false
+        order_inserts: true
+        order_updates: true
+    show-sql: ${SHOW_SQL:false}
 
-  datasource:
-    url: jdbc:postgresql://localhost:5432/notification_db
-    username: ${DB_USERNAME:notification_user}
-    password: ${DB_PASSWORD:notification_pass}
-    hikari:
-      maximum-pool-size: 10
-      minimum-idle: 5
-      connection-timeout: 30000
-      idle-timeout: 600000
-      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 60s
+      cache-null-values: false
 
   rabbitmq:
-    host: localhost
-    port: 5672
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:guest}
     password: ${RABBITMQ_PASSWORD:guest}
     connection-timeout: 5000
 
   mail:
-    host: smtp.gmail.com
-    port: 587
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:}
     password: ${MAIL_PASSWORD:}
     properties:
@@ -49,42 +59,28 @@ spring:
             enable: true
         debug: false
 
-  cache:
-    type: redis
-    redis:
-      time-to-live: 60000
-
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      timeout: 2000ms
-
 server:
-  port: 8086
+  port: ${SERVER_PORT:8086}
   servlet:
-    context-path: /api/v1/notifications
+    context-path: /api
 
 logging:
   level:
     com.travelapp.notification: DEBUG
     org.springframework.amqp: WARN
     org.springframework.mail: WARN
+    org.hibernate.SQL: ${SHOW_SQL:false}
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %highlight(%-5level) - %cyan(%logger{36}) - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,metrics
-  health:
-    redis:
-      enabled: true
-    db:
-      enabled: true
-    rabbit:
-      enabled: true
+  endpoint:
+    health:
+      show-details: always
 
 resilience4j:
   circuitbreaker:
@@ -97,32 +93,13 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         wait-duration-in-open-state: 10s
         failure-rate-threshold: 50
-        event-consumer-buffer-size: 10
-      rabbitMqService:
-        register-health-indicator: true
-        sliding-window-size: 10
-        minimum-number-of-calls: 5
-        permitted-number-of-calls-in-half-open-state: 3
-        automatic-transition-from-open-to-half-open-enabled: true
-        wait-duration-in-open-state: 10s
-        failure-rate-threshold: 50
 
 notification:
   email:
-    from: noreply@travelapp.com
-    enabled: true
-  push:
-    enabled: false
-  queue:
-    notification: notification.queue
-    notification.dlq: notification.queue.dlq
-    notification.exchange: notification.exchange
-  retry:
-    max-attempts: 3
-    initial-interval: 1000
-    multiplier: 2
+    from: ${NOTIFICATION_EMAIL_FROM:noreply@travelapp.com}
+    enabled: ${NOTIFICATION_EMAIL_ENABLED:true}
   scheduler:
-    fixed-delay: 60000 # 1 minute
+    fixed-delay: 60000
 
 springdoc:
   api-docs:

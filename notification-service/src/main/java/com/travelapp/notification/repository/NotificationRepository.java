@@ -44,4 +44,7 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     List<Notification> findScheduledNotificationsReadyForSending(
             @Param("userId") Long userId,
             @Param("now") LocalDateTime now);
+    @Query("SELECT n FROM Notification n " +
+            "WHERE n.scheduledAt IS NOT NULL AND n.scheduledAt <= :now AND n.sentAt IS NULL")
+    List<Notification> findScheduledReady(@Param("now") LocalDateTime now);
 }

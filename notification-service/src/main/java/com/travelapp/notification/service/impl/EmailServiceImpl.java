@@ -26,7 +26,7 @@ public class EmailServiceImpl implements EmailService {
     @Value("${notification.email.enabled:true}")
     private boolean emailEnabled;
 
-    @Async
+    @Async("notificationTaskExecutor")
     @Override
     public void sendNotificationEmail(NotificationResponse notification) {
         if (!emailEnabled) {

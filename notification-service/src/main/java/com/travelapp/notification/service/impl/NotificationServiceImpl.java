@@ -1,4 +1,3 @@
-// notification-service/src/main/java/com/travelapp/notification/service/impl/NotificationServiceImpl.java
 package com.travelapp.notification.service.impl;
 
 import com.travelapp.notification.exception.NotificationNotFoundException;
@@ -43,50 +42,40 @@ public class NotificationServiceImpl implements NotificationService {
 
         Notification notification = notificationMapper.toEntity(request);
 
-        // Если запланированное время не указано, отправляем немедленно
-        if (notification.getScheduledAt() == null) {
-            notification.markAsSent();
+        // scheduledAt == null -> отправка сразу, но sentAt ставим ТОЛЬКО после успеха отправки
+        Notification saved = notificationRepository.save(notification);
+
+        if (saved.getScheduledAt() == null) {
+            sendNotificationImmediately(NotificationResponse.fromEntity(saved));
+            // если отправка успешна -> ставим sentAt и сохраняем
+            saved.markAsSent();
+            saved = notificationRepository.save(saved);
         }
 
-        Notification savedNotification = notificationRepository.save(notification);
-
-        // Если уведомление должно быть отправлено немедленно, отправляем его
-        if (savedNotification.getScheduledAt() == null) {
-            sendNotificationImmediately(NotificationResponse.fromEntity(savedNotification));
-        }
-
-        log.info("Notification created successfully with id: {}", savedNotification.getId());
-        return notificationMapper.toResponse(savedNotification);
+        log.info("Notification created successfully with id: {}", saved.getId());
+        return notificationMapper.toResponse(saved);
     }
 
     @Override
     @Transactional(readOnly = true)
     public NotificationResponse getNotificationById(Long id, Long userId) {
-        log.info("Getting notification with id {} for user {}", id, userId);
-
         Notification notification = notificationRepository.findByIdAndUserId(id, userId)
                 .orElseThrow(() -> new NotificationNotFoundException(
                         String.format("Notification with id %d not found for user %d", id, userId)));
-
         return notificationMapper.toResponse(notification);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<NotificationResponse> getUserNotifications(Long userId, Pageable pageable) {
-        log.info("Getting notifications for user {} with pageable {}", userId, pageable);
-
         Page<Notification> notifications = notificationRepository.findByUserId(userId, pageable);
         List<NotificationResponse> responses = notificationMapper.toResponseList(notifications.getContent());
-
         return new PageImpl<>(responses, pageable, notifications.getTotalElements());
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<NotificationResponse> getUserNotificationsWithFilter(Long userId, NotificationFilterRequest filter) {
-        log.info("Getting filtered notifications for user {} with filter {}", userId, filter);
-
         Page<Notification> notifications;
         Pageable pageable = filter.toPageable();
 
@@ -102,73 +91,55 @@ public class NotificationServiceImpl implements NotificationService {
         }
 
         List<NotificationResponse> responses = notificationMapper.toResponseList(notifications.getContent());
-
         return new PageImpl<>(responses, pageable, notifications.getTotalElements());
     }
 
     @Override
     public NotificationResponse markAsRead(Long id, Long userId) {
-        log.info("Marking notification {} as read for user {}", id, userId);
-
         Notification notification = notificationRepository.findById(id)
                 .orElseThrow(() -> new NotificationNotFoundException(
                         String.format("Notification with id %d not found", id)));
 
-        // Проверяем, что уведомление принадлежит пользователю
         if (!notification.getUserId().equals(userId)) {
             throw new UnauthorizedAccessException("User is not authorized to access this notification");
         }
 
         notification.markAsRead();
-        Notification updatedNotification = notificationRepository.save(notification);
-
-        log.info("Notification {} marked as read", id);
-        return notificationMapper.toResponse(updatedNotification);
+        Notification updated = notificationRepository.save(notification);
+        return notificationMapper.toResponse(updated);
     }
 
     @Override
     public void markAllAsRead(Long userId) {
-        log.info("Marking all notifications as read for user {}", userId);
+        List<Notification> unread = notificationRepository.findByUserIdAndIsReadFalse(userId);
+        if (unread.isEmpty()) return;
 
-        List<Notification> unreadNotifications = notificationRepository.findByUserIdAndIsReadFalse(userId);
-
-        if (!unreadNotifications.isEmpty()) {
-            unreadNotifications.forEach(Notification::markAsRead);
-            notificationRepository.saveAll(unreadNotifications);
-            log.info("Marked {} notifications as read for user {}", unreadNotifications.size(), userId);
-        }
+        unread.forEach(Notification::markAsRead);
+        notificationRepository.saveAll(unread);
+        log.info("Marked {} notifications as read for user {}", unread.size(), userId);
     }
 
     @Override
     public void deleteNotification(Long id, Long userId) {
-        log.info("Deleting notification {} for user {}", id, userId);
-
         Notification notification = notificationRepository.findById(id)
                 .orElseThrow(() -> new NotificationNotFoundException(
                         String.format("Notification with id %d not found", id)));
 
-        // Проверяем, что уведомление принадлежит пользователю
         if (!notification.getUserId().equals(userId)) {
             throw new UnauthorizedAccessException("User is not authorized to delete this notification");
         }
 
         notificationRepository.delete(notification);
-        log.info("Notification {} deleted successfully", id);
     }
 
     @Override
     public void deleteAllUserNotifications(Long userId) {
-        log.info("Deleting all notifications for user {}", userId);
-
         notificationRepository.deleteByUserId(userId);
-        log.info("All notifications deleted for user {}", userId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public NotificationStatsResponse getUserNotificationStats(Long userId) {
-        log.info("Getting notification stats for user {}", userId);
-
         Long totalCount = notificationRepository.countByUserId(userId);
         Long unreadCount = notificationRepository.countByUserIdAndIsReadFalse(userId);
 
@@ -194,65 +165,55 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Scheduled(fixedDelayString = "${notification.scheduler.fixed-delay:60000}")
     public List<NotificationResponse> sendScheduledNotifications() {
-        log.info("Checking for scheduled notifications to send");
-
         LocalDateTime now = LocalDateTime.now();
-        List<Notification> scheduledNotifications = notificationRepository
-                .findByIsReadFalseAndScheduledAtBefore(now);
 
-        if (scheduledNotifications.isEmpty()) {
+        // ✅ правильная выборка: scheduledAt <= now и ещё НЕ отправляли
+        List<Notification> scheduled = notificationRepository.findScheduledReady(now);
+
+        if (scheduled.isEmpty()) {
             log.debug("No scheduled notifications to send");
             return List.of();
         }
 
-        log.info("Found {} scheduled notifications to send", scheduledNotifications.size());
+        log.info("Found {} scheduled notifications to send", scheduled.size());
 
-        scheduledNotifications.forEach(notification -> {
-            notification.markAsSent();
-            sendNotificationImmediately(NotificationResponse.fromEntity(notification));
-        });
+        for (Notification n : scheduled) {
+            try {
+                sendNotificationImmediately(NotificationResponse.fromEntity(n));
+                n.markAsSent(); // ✅ только после успешной отправки
+            } catch (Exception e) {
+                // sentAt не ставим — останется в очереди на следующую попытку
+                log.error("Failed to send scheduled notification {}: {}", n.getId(), e.getMessage(), e);
+            }
+        }
 
-        notificationRepository.saveAll(scheduledNotifications);
-
-        List<NotificationResponse> responses = notificationMapper.toResponseList(scheduledNotifications);
-        log.info("Sent {} scheduled notifications", scheduledNotifications.size());
-
-        return responses;
+        notificationRepository.saveAll(scheduled);
+        return notificationMapper.toResponseList(scheduled);
     }
 
     @Override
     public void sendNotificationImmediately(NotificationResponse notification) {
-        log.info("Sending notification immediately: {}", notification.getTitle());
-
-        // Здесь будет логика отправки уведомления через email, push, etc.
-        try {
-            emailService.sendNotificationEmail(notification);
-            log.debug("Email notification sent for: {}", notification.getId());
-        } catch (Exception e) {
-            log.error("Failed to send email notification for {}: {}", notification.getId(), e.getMessage());
-            // Можно добавить логику повторной попытки или отправки через другой канал
-        }
+        emailService.sendNotificationEmail(notification);
     }
 
     @Override
     public void sendBatchNotifications(List<CreateNotificationRequest> requests) {
         log.info("Sending batch of {} notifications", requests.size());
 
-        List<Notification> notifications = requests.stream()
-                .map(notificationMapper::toEntity)
-                .peek(notification -> notification.markAsSent())
-                .collect(Collectors.toList());
+        // ✅ для batch: тоже ставим sentAt после успеха отправки
+        List<Notification> saved = notificationRepository.saveAll(
+                requests.stream().map(notificationMapper::toEntity).collect(Collectors.toList())
+        );
 
-        List<Notification> savedNotifications = notificationRepository.saveAll(notifications);
-
-        savedNotifications.forEach(notification -> {
+        for (Notification n : saved) {
             try {
-                sendNotificationImmediately(NotificationResponse.fromEntity(notification));
+                sendNotificationImmediately(NotificationResponse.fromEntity(n));
+                n.markAsSent();
             } catch (Exception e) {
-                log.error("Failed to send batch notification {}: {}", notification.getId(), e.getMessage());
+                log.error("Failed to send batch notification {}: {}", n.getId(), e.getMessage(), e);
             }
-        });
+        }
 
-        log.info("Batch notifications sent successfully");
+        notificationRepository.saveAll(saved);
     }
 }
