@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -37,7 +38,6 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
                 .filtersJson(request.getFiltersJson())
                 .cityId(request.getCityId())
                 .presetFilterId(request.getPresetFilterId())
-                .searchedAt(LocalDateTime.now())
                 .build();
 
         searchHistoryRepository.save(searchHistory);
@@ -88,10 +88,13 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
         log.debug("Search history cleared successfully");
     }
 
+
+    @Value("${app.history.days-to-keep:30}")
+    private int daysToKeep;
     @Override
-    @Scheduled(cron = "0 0 2 * * ?") // Ежедневно в 2:00 ночи
+    @Scheduled(cron = "0 0 2 * * ?") // ежедневно в 02:00
     @CacheEvict(value = {"searchHistory", "recentQueries"}, allEntries = true)
-    public void cleanupOldHistory(int daysToKeep) {
+    public void cleanupOldHistory() {
         log.info("Cleaning up search history older than {} days", daysToKeep);
 
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysToKeep);

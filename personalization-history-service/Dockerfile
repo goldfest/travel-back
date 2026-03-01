@@ -1,49 +1,16 @@
-# Базовый образ с Java 21
-FROM openjdk:21-jdk-slim as builder
-
-# Установка Maven
-RUN apt-get update && apt-get install -y maven
-
-# Рабочая директория
+# Stage 1: Build the application
+FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /app
-
-# Копируем pom.xml
 COPY pom.xml .
-
-# Скачиваем зависимости
-RUN mvn dependency:go-offline
-
-# Копируем исходный код
+RUN mvn dependency:go-offline -B
 COPY src ./src
-
-# Собираем приложение
 RUN mvn clean package -DskipTests
 
-# Финальный образ
-FROM openjdk:21-jdk-slim
-
-# Устанавливаем зависимости для работы с PostgreSQL
-RUN apt-get update && \
-    apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# Создаем пользователя для безопасности
-RUN addgroup --system app && adduser --system --ingroup app app
-
-# Рабочая директория
+# Stage 2: Run the application
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-
-# Копируем собранный JAR файл
 COPY --from=builder /app/target/*.jar app.jar
-
-# Копируем скрипт запуска
-COPY --chown=app:app entrypoint.sh .
-
-# Устанавливаем права
-RUN chmod +x entrypoint.sh
-
-# Переключаемся на пользователя app
-USER app
-
-# Точка входа
-ENTRYPOINT ["./entrypoint.sh"]
+RUN addgroup -S spring && adduser -S spring -G spring
+USER spring:spring
+EXPOSE 8085
+ENTRYPOINT ["java", "-jar", "app.jar"]

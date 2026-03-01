@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/search-history")
+@RequestMapping("/personalization/v1/search-history")
 @RequiredArgsConstructor
 @Tag(name = "Search History Management", description = "APIs for managing search history")
 public class SearchHistoryController {

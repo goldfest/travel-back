@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/collections")
+@RequestMapping("/personalization/v1/collections")
 @RequiredArgsConstructor
 @Tag(name = "Collection Management", description = "APIs for managing user collections")
 public class CollectionController {
@@ -109,21 +109,21 @@ public class CollectionController {
     }
 
     @GetMapping("/{collectionId}/pois")
-    @Operation(summary = "Get POIs in collection")
     public ResponseEntity<Page<Long>> getCollectionPois(
+            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
 
-        Page<Long> poiIds = collectionService.getCollectionPois(collectionId, pageable);
+        Page<Long> poiIds = collectionService.getCollectionPois(userId, collectionId, pageable);
         return ResponseEntity.ok(poiIds);
     }
 
     @GetMapping("/{collectionId}/pois/count")
-    @Operation(summary = "Get POI count in collection")
     public ResponseEntity<Long> getCollectionPoiCount(
+            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId) {
 
-        Long count = collectionService.getCollectionPoiCount(collectionId);
+        Long count = collectionService.getCollectionPoiCount(userId, collectionId);
         return ResponseEntity.ok(count);
     }
 }

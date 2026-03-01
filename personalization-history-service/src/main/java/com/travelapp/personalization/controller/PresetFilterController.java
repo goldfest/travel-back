@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/preset-filters")
+@RequestMapping("/personalization/v1/preset-filters")
 @RequiredArgsConstructor
 @Tag(name = "Preset Filter Management", description = "APIs for managing preset filters")
 public class PresetFilterController {

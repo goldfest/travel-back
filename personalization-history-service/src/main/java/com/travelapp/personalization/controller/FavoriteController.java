@@ -15,7 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/favorites")
+@RequestMapping("/personalization/v1/favorites")
 @RequiredArgsConstructor
 @Tag(name = "Favorite Management", description = "APIs for managing user favorites")
 public class FavoriteController {

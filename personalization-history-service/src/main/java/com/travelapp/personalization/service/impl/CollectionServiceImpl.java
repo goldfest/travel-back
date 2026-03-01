@@ -49,8 +49,6 @@ public class CollectionServiceImpl implements CollectionService {
                 .description(request.getDescription())
                 .coverUrl(request.getCoverUrl())
                 .userId(userId)
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
                 .build();
 
         Collection saved = collectionRepository.save(collection);
@@ -79,7 +77,6 @@ public class CollectionServiceImpl implements CollectionService {
         collection.setName(request.getName());
         collection.setDescription(request.getDescription());
         collection.setCoverUrl(request.getCoverUrl());
-        collection.setUpdatedAt(LocalDateTime.now());
 
         Collection updated = collectionRepository.save(collection);
 
@@ -215,7 +212,7 @@ public class CollectionServiceImpl implements CollectionService {
     @Override
     @Cacheable(value = "collectionPois", key = "#collectionId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     @Transactional(readOnly = true)
-    public Page<Long> getCollectionPois(Long collectionId, Pageable pageable) {
+    public Page<Long> getCollectionPois(Long userId, Long collectionId, Pageable pageable) {
         log.debug("Fetching POIs for collection {}", collectionId);
 
         return collectionPoiRepository.findByCollectionId(collectionId, pageable)
@@ -224,8 +221,9 @@ public class CollectionServiceImpl implements CollectionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Long getCollectionPoiCount(Long collectionId) {
+    public Long getCollectionPoiCount(Long userId, Long collectionId) {
         log.debug("Getting POI count for collection {}", collectionId);
+        getCollectionEntity(userId, collectionId);
 
         return collectionPoiRepository.countByCollectionId(collectionId);
     }

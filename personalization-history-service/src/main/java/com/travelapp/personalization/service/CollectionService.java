@@ -28,7 +28,6 @@ public interface CollectionService {
 
     void updatePoiOrder(Long userId, Long collectionId, Long collectionPoiId, Integer orderIndex);
 
-    Page<Long> getCollectionPois(Long collectionId, Pageable pageable);
-
-    Long getCollectionPoiCount(Long collectionId);
+    Page<Long> getCollectionPois(Long userId, Long collectionId, Pageable pageable);
+    Long getCollectionPoiCount(Long userId, Long collectionId);
 }

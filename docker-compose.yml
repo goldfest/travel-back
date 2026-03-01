@@ -97,4 +97,49 @@ services:
       # Если есть Feign для poi-service
       APP_POI_SERVICE_URL: http://poi-service:8081
 
+
     restart: unless-stopped
+  # =========================
+  # PERSONALIZATION DATABASE
+  # =========================
+  personalization-db:
+    image: postgres:16
+    container_name: personalization-db
+    environment:
+      POSTGRES_DB: personalization_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 5558
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d personalization_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # =========================
+  # PERSONALIZATION SERVICE
+  # =========================
+  personalization-service:
+    build:
+      context: ./personalization-history-service
+      dockerfile: Dockerfile
+    container_name: personalization-service
+    depends_on:
+      personalization-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8085
+
+      DB_URL: jdbc:postgresql://personalization-db:5432/personalization_db
+      DB_USERNAME: postgres
+      DB_PASSWORD: 5558
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+

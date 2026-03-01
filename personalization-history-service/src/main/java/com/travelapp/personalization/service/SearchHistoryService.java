@@ -19,5 +19,5 @@ public interface SearchHistoryService {
 
     void clearUserHistory(Long userId);
 
-    void cleanupOldHistory(int daysToKeep);
+    void cleanupOldHistory();
 }

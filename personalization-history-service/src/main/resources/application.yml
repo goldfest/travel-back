@@ -5,7 +5,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/personalization_db}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:password}
+    password: ${DB_PASSWORD:5558}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -31,16 +31,10 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2000ms
 
-  cache:
-    type: redis
-    redis:
-      time-to-live: 3600s
-      cache-null-values: false
-
 server:
   port: ${SERVER_PORT:8085}
   servlet:
-    context-path: /api/personalization
+    context-path: /api
 
 springdoc:
   api-docs:
@@ -74,5 +68,9 @@ app:
       ttl: 3600 # 1 час
     search-history:
       ttl: 900 # 15 минут
+    history:
+      days-to-keep: 30
   security:
     user-header: X-User-Id
+  cors:
+    allowed-origins: "*"

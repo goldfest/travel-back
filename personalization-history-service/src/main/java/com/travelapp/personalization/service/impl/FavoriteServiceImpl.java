@@ -43,7 +43,6 @@ public class FavoriteServiceImpl implements FavoriteService {
         Favorite favorite = Favorite.builder()
                 .userId(userId)
                 .poiId(request.getPoiId())
-                .createdAt(LocalDateTime.now())
                 .build();
 
         Favorite saved = favoriteRepository.save(favorite);

@@ -42,8 +42,6 @@ public class PresetFilterServiceImpl implements PresetFilterService {
                 .userId(userId)
                 .cityId(request.getCityId())
                 .poiTypeId(request.getPoiTypeId())
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
                 .build();
 
         PresetFilter saved = presetFilterRepository.save(presetFilter);
@@ -69,7 +67,6 @@ public class PresetFilterServiceImpl implements PresetFilterService {
         presetFilter.setFiltersJson(request.getFiltersJson());
         presetFilter.setCityId(request.getCityId());
         presetFilter.setPoiTypeId(request.getPoiTypeId());
-        presetFilter.setUpdatedAt(LocalDateTime.now());
 
         PresetFilter updated = presetFilterRepository.save(presetFilter);
 
