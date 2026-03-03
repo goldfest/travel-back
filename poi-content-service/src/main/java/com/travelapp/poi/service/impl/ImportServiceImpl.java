@@ -7,7 +7,7 @@ import com.travelapp.poi.model.dto.response.ImportTaskResponse;
 import com.travelapp.poi.model.entity.DataImportTask;
 import com.travelapp.poi.repository.DataImportTaskRepository;
 import com.travelapp.poi.service.ImportService;
-import com.travelapp.poi.service.mapper.ImportTaskMapper;
+import com.travelapp.poi.mapper.ImportTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -61,15 +61,17 @@ public class ImportServiceImpl implements ImportService {
         task.setStatus(DataImportTask.ImportStatus.PENDING);
         task = importTaskRepository.save(task);
 
+        final DataImportTask savedTask = importTaskRepository.save(task);
+
         // Start import asynchronously
         return CompletableFuture.supplyAsync(() -> {
             try {
-                executeImport(task, userId);
-                return importTaskMapper.toResponse(task);
+                executeImport(savedTask, userId);
+                return importTaskMapper.toResponse(savedTask);
             } catch (Exception e) {
                 log.error("Import task failed: {}", e.getMessage(), e);
-                task.fail(e.getMessage());
-                importTaskRepository.save(task);
+                savedTask.fail(e.getMessage());
+                importTaskRepository.save(savedTask);
                 throw new RuntimeException("Import failed: " + e.getMessage(), e);
             }
         }, importExecutor);

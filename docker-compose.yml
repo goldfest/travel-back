@@ -1,4 +1,7 @@
 services:
+  # ======================
+  # CITY DB + SERVICE
+  # ======================
   city-db:
     image: postgres:16
     container_name: city-db
@@ -26,6 +29,48 @@ services:
       - "8082:8082"
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SPRING_DATASOURCE_URL: jdbc:postgresql://city-db:5432/city_db
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: 1234
+
+  # ======================
+  # REDIS
+  # ======================
+  redis:
+    image: redis:7
+    container_name: travel-redis
+    ports:
+      - "6379:6379"
+
+  # ======================
+  # POI DB + SERVICE
+  # ======================
+  poi-db:
+    image: postgres:16
+    container_name: poi-db
+    environment:
+      POSTGRES_DB: poi_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d poi_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  poi-service:
+    build:
+      context: ./poi-content-service
+      dockerfile: Dockerfile
+    container_name: poi-service
+    depends_on:
+      poi-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      city-service:
+        condition: service_started
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    restart: unless-stopped

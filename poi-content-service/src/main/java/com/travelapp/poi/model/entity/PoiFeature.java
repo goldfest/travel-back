@@ -9,7 +9,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "poi_features")
+@Table(name = "poi_feature")
 @Getter
 @Setter
 @ToString

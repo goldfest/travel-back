@@ -14,14 +14,16 @@ import com.travelapp.poi.model.entity.*;
 import com.travelapp.poi.repository.PoiRepository;
 import com.travelapp.poi.repository.PoiTypeRepository;
 import com.travelapp.poi.service.PoiService;
-import com.travelapp.poi.service.mapper.PoiMapper;
+import com.travelapp.poi.mapper.PoiMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,20 +80,17 @@ public class PoiServiceImpl implements PoiService {
             poi.setTags(request.getTags());
         }
 
-        // Save POI first
-        poi = poiRepository.save(poi);
-
-        // Add features
+        // Add features BEFORE saving
         if (request.getFeatures() != null) {
             request.getFeatures().forEach((key, value) -> {
                 PoiFeature feature = new PoiFeature();
                 feature.setKey(key);
                 feature.setValue(value);
-                poi.addFeature(feature);
+                poi.addFeature(feature);  // poi is effectively final here
             });
         }
 
-        // Add hours
+        // Add hours BEFORE saving
         if (request.getHours() != null) {
             request.getHours().forEach(hoursRequest -> {
                 PoiHours hours = new PoiHours();
@@ -99,34 +98,37 @@ public class PoiServiceImpl implements PoiService {
                 hours.setOpenTime(hoursRequest.getOpenTime());
                 hours.setCloseTime(hoursRequest.getCloseTime());
                 hours.setAroundTheClock(hoursRequest.getAroundTheClock());
-                poi.addHours(hours);
+                poi.addHours(hours);  // poi is effectively final here
             });
         }
 
-        // Add media
+        // Add media BEFORE saving
         if (request.getMedia() != null) {
             request.getMedia().forEach(mediaRequest -> {
                 PoiMedia media = new PoiMedia();
                 media.setUrl(mediaRequest.getUrl());
                 media.setMediaType(mediaRequest.getMediaType());
                 media.setUserId(userId);
-                poi.addMedia(media);
+                poi.addMedia(media);  // poi is effectively final here
             });
         }
 
-        // Add sources
+        // Add sources BEFORE saving
         if (request.getSources() != null) {
             request.getSources().forEach(sourceRequest -> {
                 PoiSource source = new PoiSource();
                 source.setSourceCode(sourceRequest.getSourceCode());
                 source.setSourceUrl(sourceRequest.getSourceUrl());
                 source.setConfidenceScore(sourceRequest.getConfidenceScore());
-                poi.addSource(source);
+                poi.addSource(source);  // poi is effectively final here
             });
         }
 
-        log.info("POI created successfully with ID: {}", poi.getId());
-        return poiMapper.toResponse(poi);
+        // Save POI with all relationships
+        Poi savedPoi = poiRepository.save(poi);  // Use a different variable for the saved entity
+        log.info("POI created successfully with ID: {}", savedPoi.getId());
+
+        return poiMapper.toResponse(savedPoi);
     }
 
     @Override
@@ -217,14 +219,15 @@ public class PoiServiceImpl implements PoiService {
                 PoiFeature feature = new PoiFeature();
                 feature.setKey(key);
                 feature.setValue(value);
-                poi.addFeature(feature);
+                poi.addFeature(feature);  // poi is effectively final here
             });
         }
 
-        poi = poiRepository.save(poi);
+        // Save the POI without reassigning the variable
+        Poi updatedPoi = poiRepository.save(poi);  // Use a different variable
         log.info("POI updated successfully: {}", id);
 
-        return poiMapper.toResponse(poi);
+        return poiMapper.toResponse(updatedPoi);
     }
 
     @Override
@@ -283,9 +286,14 @@ public class PoiServiceImpl implements PoiService {
         // Build specification based on filters
         Specification<Poi> spec = buildSearchSpecification(request);
 
-        Pageable pageable = Pageable.ofSize(request.getSize())
-                .withPage(request.getPage() - 1)
-                .withSort(request.getSortDirection(), request.getSortBy());
+        // Создаем Pageable правильно
+        Pageable pageable = PageRequest.of(
+                request.getPage() - 1,
+                request.getSize(),
+                request.getSortDirection() != null ?
+                        Sort.by(request.getSortDirection(), request.getSortBy()) :
+                        Sort.unsorted()
+        );
 
         Page<Poi> poiPage = poiRepository.findAll(spec, pageable);
 

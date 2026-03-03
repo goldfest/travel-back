@@ -8,20 +8,23 @@ import org.mapstruct.Named;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Mapper(componentModel = "spring")
 public interface PoiMapper {
 
     @Mapping(target = "poiType", source = "poiType")
-    @Mapping(target = "features", source = "features", qualifiedByName = "mapFeatures")
-    @Mapping(target = "hours", source = "hours", qualifiedByName = "mapHours")
-    @Mapping(target = "media", source = "media", qualifiedByName = "mapMedia")
-    @Mapping(target = "sources", source = "sources", qualifiedByName = "mapSources")
+    @Mapping(target = "features", expression = "java(mapFeatures(poi.getFeatures()))")
+    @Mapping(target = "hours", expression = "java(mapHours(poi.getHours()))")
+    @Mapping(target = "media", expression = "java(mapMedia(poi.getMedia()))")
+    @Mapping(target = "sources", expression = "java(mapSources(poi.getSources()))")
+    @Mapping(target = "distanceKm", ignore = true)  // Будет заполняться отдельно
+    @Mapping(target = "isOpenNow", ignore = true)   // Будет заполняться в сервисе
+    @Mapping(target = "currentStatus", ignore = true) // Будет заполняться в сервисе
     PoiResponse toResponse(Poi poi);
 
-    @Named("mapFeatures")
-    default Map<String, String> mapFeatures(List<PoiFeature> features) {
+    default Map<String, String> mapFeatures(Set<PoiFeature> features) {
         if (features == null) return null;
         return features.stream()
                 .collect(Collectors.toMap(
@@ -30,30 +33,28 @@ public interface PoiMapper {
                 ));
     }
 
-    @Named("mapHours")
-    default List<PoiResponse.PoiHoursResponse> mapHours(List<PoiHours> hours) {
+    default List<PoiResponse.PoiHoursResponse> mapHours(Set<PoiHours> hours) {
         if (hours == null) return null;
         return hours.stream()
                 .map(this::toHoursResponse)
                 .collect(Collectors.toList());
     }
 
-    @Named("mapMedia")
-    default List<PoiResponse.PoiMediaResponse> mapMedia(List<PoiMedia> media) {
+    default List<PoiResponse.PoiMediaResponse> mapMedia(Set<PoiMedia> media) {
         if (media == null) return null;
         return media.stream()
                 .map(this::toMediaResponse)
                 .collect(Collectors.toList());
     }
 
-    @Named("mapSources")
-    default List<PoiResponse.PoiSourceResponse> mapSources(List<PoiSource> sources) {
+    default List<PoiResponse.PoiSourceResponse> mapSources(Set<PoiSource> sources) {
         if (sources == null) return null;
         return sources.stream()
                 .map(this::toSourceResponse)
                 .collect(Collectors.toList());
     }
 
+    @Mapping(target = "isToday", ignore = true) // Будет заполняться отдельно
     PoiResponse.PoiHoursResponse toHoursResponse(PoiHours hours);
 
     PoiResponse.PoiMediaResponse toMediaResponse(PoiMedia media);
