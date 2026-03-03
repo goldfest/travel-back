@@ -11,6 +11,7 @@ import com.travelapp.auth.repository.UserRepository;
 import com.travelapp.auth.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,11 +21,14 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -34,6 +38,8 @@ public class UserServiceImpl implements UserService, UserDetailsService {
     private final UserRepository userRepository;
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    @Value("${app.storage.upload-dir:/app/uploads}")
+    private String uploadDirPath;
 
     @Override
     public UserDetails loadUserByUsername(String username) {
@@ -220,6 +226,47 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         // Пользователь может редактировать только свой профиль
         if (!currentUser.getId().equals(user.getId())) {
             throw new UnauthorizedException("You don't have permission to modify this user");
+        }
+    }
+
+    @Override
+    public UserResponse updateAvatar(Long userId, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Empty file");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("Only image files allowed");
+        }
+
+        String ext = switch (contentType) {
+            case "image/png" -> ".png";
+            case "image/webp" -> ".webp";
+            case "image/jpeg", "image/jpg" -> ".jpg";
+            default -> ".jpg";
+        };
+
+        try {
+            Path uploadDir = Paths.get(uploadDirPath);
+            Files.createDirectories(uploadDir);
+
+            String filename = "avatar_" + userId + "_" + UUID.randomUUID() + ext;
+            Path target = uploadDir.resolve(filename);
+
+            try (var in = file.getInputStream()) {
+                Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            String avatarUrl = "/api/uploads/" + filename;
+
+            var user = userRepository.findById(userId).orElseThrow();
+            user.setAvatarUrl(avatarUrl);
+            userRepository.save(user);
+
+            return userMapper.toResponse(user);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to upload avatar", e);
         }
     }
 }

@@ -1,5 +1,7 @@
 version: "3.9"
 
+volumes:
+  auth_uploads:
 services:
 
   # =========================
@@ -37,6 +39,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/auth_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: 5558
+    volumes:
+      - auth_uploads:/app/uploads
+
 
   # =========================
   # ROUTE DATABASE

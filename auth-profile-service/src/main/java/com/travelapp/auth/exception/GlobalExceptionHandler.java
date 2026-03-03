@@ -1,6 +1,7 @@
 package com.travelapp.auth.exception;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -9,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -120,6 +122,30 @@ public class GlobalExceptionHandler {
                 .message("An unexpected error occurred")
                 .build();
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<?> handleMaxUpload(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(
+                Map.of(
+                        "error", "FILE_TOO_LARGE",
+                        "message", "Файл слишком большой. Максимальный размер — 25MB."
+                )
+        );
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MultipartException.class)
+    public ResponseEntity<?> handleMultipart(org.springframework.web.multipart.MultipartException e) {
+        log.error("Multipart error: {}", e.getMessage(), e);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+                Map.of("error", "MULTIPART_ERROR", "message", e.getMessage())
+        );
+    }
+
+    @ExceptionHandler(ClientAbortException.class)
+    public ResponseEntity<Void> handleClientAbort(ClientAbortException ex) {
+        // клиент сам оборвал соединение — это не "ошибка сервера"
+        return ResponseEntity.noContent().build();
     }
 
     @lombok.Builder

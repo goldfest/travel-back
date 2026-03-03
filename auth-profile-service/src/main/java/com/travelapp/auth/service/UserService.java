@@ -5,6 +5,7 @@ import com.travelapp.auth.model.dto.request.UpdateProfileRequest;
 import com.travelapp.auth.model.dto.response.UserResponse;
 import com.travelapp.auth.model.entity.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface UserService extends UserDetailsService {
 
@@ -29,4 +30,6 @@ public interface UserService extends UserDetailsService {
     User getCurrentUser();
 
     boolean isCurrentUserAdmin();
+
+    UserResponse updateAvatar(Long userId, MultipartFile file);
 }

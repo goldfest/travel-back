@@ -9,8 +9,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/users")
@@ -38,6 +40,7 @@ public class UserController {
 
     @PutMapping("/me")
     @Operation(summary = "Update current user profile")
+
     public ResponseEntity<UserResponse> updateProfile(@Valid @RequestBody UpdateProfileRequest request) {
         Long userId = userService.getCurrentUser().getId();
         UserResponse updatedUser = userService.updateUser(userId, request);
@@ -58,5 +61,13 @@ public class UserController {
         Long userId = userService.getCurrentUser().getId();
         userService.deleteUser(userId);
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload avatar for current user")
+    public ResponseEntity<UserResponse> uploadAvatar(@RequestPart("file") MultipartFile file) {
+        Long userId = userService.getCurrentUser().getId();
+        UserResponse updated = userService.updateAvatar(userId, file);
+        return ResponseEntity.ok(updated);
     }
 }
