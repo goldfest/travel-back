@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import com.travelapp.auth.validation.StrongPassword;
+
 @Data
 public class RegisterRequest {
 
@@ -18,6 +20,7 @@ public class RegisterRequest {
 
     @NotBlank(message = "Password is required")
     @Size(min = 6, message = "Password must be at least 6 characters")
+    @StrongPassword
     private String password;
 
     private String phone;

@@ -47,11 +47,11 @@ public class AuthServiceImpl implements AuthService {
 
         // Проверяем существование пользователя
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("Email already registered");
+            throw new IllegalArgumentException("Почта уже используется");
         }
 
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new IllegalArgumentException("Username already taken");
+            throw new IllegalArgumentException("Логин уже используется");
         }
 
         // Создаем пользователя
@@ -99,14 +99,14 @@ public class AuthServiceImpl implements AuthService {
 
         String email = authentication.getName();
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new UnauthorizedException("User not found"));
+                .orElseThrow(() -> new UnauthorizedException("Пользователь не найден"));
 
         if (Boolean.TRUE.equals(user.getIsBlocked())) {
-            throw new UnauthorizedException("User account is blocked");
+            throw new UnauthorizedException("Пользователь заблокирован");
         }
 
         if (user.getStatus() != User.UserStatus.ACTIVE) {
-            throw new UnauthorizedException("User account is not active");
+            throw new UnauthorizedException("Аккаунт не активен");
         }
 
         String accessToken = jwtService.generateToken(user);

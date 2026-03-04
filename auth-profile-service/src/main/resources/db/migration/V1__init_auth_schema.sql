@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- Создание таблицы users
 CREATE TABLE IF NOT EXISTS users (
                                      id BIGSERIAL PRIMARY KEY,
@@ -53,10 +54,10 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Вставка тестового администратора (пароль: admin123)
+-- Администратор (пароль: admin123)
 INSERT INTO users (email, username, password_hash, role, status, is_blocked, created_at, updated_at)
 VALUES (
-           'admin@travelapp.com',
+           'admin@mail.ru',
            'admin',
            '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVFCVC',
            'ADMIN',
@@ -66,15 +67,25 @@ VALUES (
            CURRENT_TIMESTAMP
        ) ON CONFLICT (email) DO NOTHING;
 
--- Вставка тестового пользователя (пароль: user123)
+-- Пользователь vano (пароль: 555555va)
 INSERT INTO users (email, username, password_hash, role, status, is_blocked, created_at, updated_at)
 VALUES (
-           'user@travelapp.com',
-           'user',
-           '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVFCVC',
+           'vano00189@mail.ru',
+           'vano',
+           '$2a$10$9s5p6GJ5k9FQK7cF8q9qTOVX4sG8Z1Q8yCkQ1Y9R9N8nG7x6d5a3e',
            'USER',
            'ACTIVE',
            false,
            CURRENT_TIMESTAMP,
            CURRENT_TIMESTAMP
        ) ON CONFLICT (email) DO NOTHING;
+
+UPDATE users
+SET password_hash = crypt('555555va', gen_salt('bf', 10)),
+    updated_at = CURRENT_TIMESTAMP
+WHERE email = 'vano00189@mail.ru';
+
+UPDATE users
+SET password_hash = crypt('admin123', gen_salt('bf', 10)),
+    updated_at = CURRENT_TIMESTAMP
+WHERE email = 'admin@mail.ru';
