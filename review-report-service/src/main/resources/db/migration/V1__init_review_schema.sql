@@ -17,10 +17,8 @@ CREATE TABLE reviews (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     likes_count INTEGER DEFAULT 0,
     poi_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL
 
-    CONSTRAINT fk_review_poi FOREIGN KEY (poi_id) REFERENCES poi_service.pois(id) ON DELETE CASCADE,
-    CONSTRAINT fk_review_user FOREIGN KEY (user_id) REFERENCES auth_service.users(id) ON DELETE CASCADE
 );
 
 -- Индексы для Reviews
@@ -59,10 +57,7 @@ CREATE TABLE reports (
     review_id BIGINT,
     poi_id BIGINT,
 
-    CONSTRAINT fk_report_user FOREIGN KEY (user_id) REFERENCES auth_service.users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_report_handler FOREIGN KEY (handled_by_user_id) REFERENCES auth_service.users(id) ON DELETE SET NULL,
     CONSTRAINT fk_report_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
-    CONSTRAINT fk_report_poi FOREIGN KEY (poi_id) REFERENCES poi_service.pois(id) ON DELETE CASCADE,
 
     -- Проверка, что жалоба относится либо к отзыву, либо к объекту
     CONSTRAINT chk_report_target CHECK (
@@ -90,7 +85,6 @@ CREATE TABLE review_likes (
     review_id BIGINT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_review_like_user FOREIGN KEY (user_id) REFERENCES auth_service.users(id) ON DELETE CASCADE,
     CONSTRAINT fk_review_like_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
     CONSTRAINT uk_user_review_like UNIQUE (user_id, review_id)
 );

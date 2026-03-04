@@ -5,7 +5,6 @@
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- ✅ как у Ивана -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -62,7 +61,6 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- ✅ если реально используешь WebClient (импорт / внешние сервисы) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
@@ -126,7 +124,7 @@
             <version>${commons.collections.version}</version>
         </dependency>
 
-        <!-- JSONB/JsonNode (ты уже ловил ошибки с JsonNode) -->
+        <!-- JSONB/JsonNode -->
         <dependency>
             <groupId>com.vladmihalcea</groupId>
             <artifactId>hibernate-types-60</artifactId>
@@ -163,7 +161,6 @@
                 </configuration>
             </plugin>
 
-            <!-- ✅ важно для MapStruct+Lombok -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

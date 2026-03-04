@@ -20,13 +20,12 @@ spring:
       max-lifetime: 1800000
 
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: validate
     show-sql: false
+    open-in-view: false
     properties:
       hibernate:
-        default_schema: review_service
         jdbc:
           batch_size: 20
         order_inserts: true
@@ -34,10 +33,7 @@ spring:
         format_sql: true
 
   cache:
-    type: redis
-    redis:
-      time-to-live: 60000
-      cache-null-values: false
+    type: simple
 
   redis:
     host: localhost
@@ -53,9 +49,11 @@ security:
 # Service URLs
 service:
   auth:
-    url: http://localhost:8080/api/auth
+    url: http://localhost:8084/api/auth
   poi:
     url: http://localhost:8081/api/poi
+  notification:
+    url: http://localhost:8085/api/notifications
 
 # Swagger/OpenAPI
 springdoc:

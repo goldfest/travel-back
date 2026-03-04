@@ -56,7 +56,7 @@ public class ReviewController {
     })
     public ResponseEntity<ReviewResponse> getReview(
             @PathVariable Long id,
-            @AuthenticationPrincipal(required = false) Long currentUserId) {
+            @AuthenticationPrincipal Long currentUserId) {
 
         ReviewResponse response = reviewService.getReviewById(id, currentUserId);
         return ResponseEntity.ok(response);
@@ -70,7 +70,7 @@ public class ReviewController {
     })
     public ResponseEntity<Page<ReviewResponse>> getReviewsByPoiId(
             @PathVariable Long poiId,
-            @AuthenticationPrincipal(required = false) Long currentUserId,
+            @AuthenticationPrincipal Long currentUserId,
             @Parameter(description = "Параметры пагинации")
             @PageableDefault(size = 20) Pageable pageable) {
 

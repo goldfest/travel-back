@@ -1,12 +1,14 @@
 package com.travelapp.review.client;
 
+import com.travelapp.review.config.FeignClientConfig;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Map;
 
-@FeignClient(name = "auth-service", url = "${service.auth.url}")
+@FeignClient(name = "auth-service", url = "${service.auth.url}", configuration = FeignClientConfig.class)
 public interface AuthClient {
 
     @GetMapping("/internal/users/{userId}/info")
