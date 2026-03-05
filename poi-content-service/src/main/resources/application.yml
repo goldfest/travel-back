@@ -8,9 +8,9 @@ spring:
     name: poi-content-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/poi_db
-    username: postgres
-    password: 1234
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/poi_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:1234}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -39,7 +39,7 @@ spring:
     locations: classpath:db/migration
 
   cache:
-    type: simple
+    type: ${SPRING_CACHE_TYPE:simple}
 
   jackson:
     serialization:
@@ -47,54 +47,16 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
 
-# External services configuration
 services:
   city:
-    base-url: http://localhost:8082/api/cities
+    base-url: ${CITY_SERVICE_URL:http://localhost:8082/api/cities}
   auth:
-    base-url: http://localhost:8084/api/auth
+    base-url: ${AUTH_API_URL:http://localhost:8084/api/auth}
   review:
-    base-url: http://localhost:8083/api/review
+    base-url: ${REVIEW_SERVICE_URL:http://localhost:8083/api/review}
 
-# Import configuration
-import:
-  sources:
-    google-maps:
-      enabled: false
-      api-key: ${GOOGLE_MAPS_API_KEY:}
-      rate-limit: 10
-    yandex:
-      enabled: false
-      api-key: ${YANDEX_API_KEY:}
-      rate-limit: 15
-  batch:
-    size: 50
-    retry-attempts: 3
-    retry-delay: 1000
-
-# Pagination
-pagination:
-  default-page-size: 20
-  max-page-size: 100
-
-logging:
-  level:
-    com.travelapp.poi: DEBUG
-    org.springframework.web: INFO
-    org.hibernate.SQL: WARN
-    org.hibernate.type.descriptor.sql.BasicBinder: WARN
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics,prometheus
-  endpoint:
-    health:
-      show-details: always
-  metrics:
-    export:
-      prometheus:
-        enabled: true
+auth-service:
+  base-url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
+  me-path: ${AUTH_ME_PATH:/users/me}
+  connect-timeout: 2s
+  response-timeout: 3s

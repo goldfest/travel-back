@@ -58,4 +58,6 @@ public interface PoiRepository extends JpaRepository<Poi, Long>, JpaSpecificatio
 
     @Query("SELECT p FROM Poi p WHERE p.isVerified = false ORDER BY p.createdAt DESC")
     Page<Poi> findUnverified(Pageable pageable);
+
+    Page<Poi> findByPoiTypeIdAndIsVerifiedTrue(Long poiTypeId, Pageable pageable);
 }

@@ -1,20 +1,13 @@
 spring:
-  datasource:
-    url: jdbc:postgresql://poi-db:5432/poi_db
-    username: postgres
-    password: 1234
-    driver-class-name: org.postgresql.Driver
-
-  # Redis как кеш (в docker-профиле)
   cache:
     type: redis
     redis:
-      time-to-live: 60000
+      time-to-live: ${POI_CACHE_TTL_MS:600000} # 10 минут (лучше, чем 60 сек)
       cache-null-values: false
 
   redis:
-    host: redis
-    port: 6379
+    host: ${SPRING_REDIS_HOST:redis}
+    port: ${SPRING_REDIS_PORT:6379}
     timeout: 2000
     lettuce:
       pool:
@@ -24,8 +17,11 @@ spring:
 
 services:
   city:
-    base-url: http://city-service:8082/api/cities
+    base-url: ${CITY_SERVICE_URL:http://city-service:8082/api/cities}
   auth:
-    base-url: http://auth-service:8084/api/auth
+    base-url: ${AUTH_API_URL:http://auth-service:8084/api/auth}
   review:
-    base-url: http://review-service:8083/api/review
+    base-url: ${REVIEW_SERVICE_URL:http://review-service:8083/api/review}
+
+auth-service:
+  base-url: ${AUTH_SERVICE_URL:http://auth-service:8084}

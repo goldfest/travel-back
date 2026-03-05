@@ -15,6 +15,7 @@ import org.hibernate.annotations.Type;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -103,16 +104,16 @@ public class Poi {
         return poiType != null ? poiType.getName() : null;
     }
 
-    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PoiFeature> features = new HashSet<>();
 
-    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PoiHours> hours = new HashSet<>();
 
-    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PoiMedia> media = new HashSet<>();
 
-    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PoiSource> sources = new HashSet<>();
 
     // Helper method to add feature
@@ -144,10 +145,8 @@ public class Poi {
         if (ratingCount == null) ratingCount = 0;
         if (averageRating == null) averageRating = BigDecimal.ZERO;
 
-        BigDecimal totalRating = averageRating.multiply(BigDecimal.valueOf(ratingCount))
-                .add(newRating);
-
+        BigDecimal totalRating = averageRating.multiply(BigDecimal.valueOf(ratingCount)).add(newRating);
         ratingCount++;
-        averageRating = totalRating.divide(BigDecimal.valueOf(ratingCount), 2, BigDecimal.ROUND_HALF_UP);
+        averageRating = totalRating.divide(BigDecimal.valueOf(ratingCount), 2, RoundingMode.HALF_UP);
     }
 }
