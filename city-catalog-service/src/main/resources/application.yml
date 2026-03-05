@@ -72,3 +72,7 @@ management:
     export:
       prometheus:
         enabled: true
+
+auth-service:
+  base-url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
+  me-path: /users/me
