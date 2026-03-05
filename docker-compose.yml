@@ -2,8 +2,12 @@ version: "3.9"
 
 volumes:
   auth_uploads:
-services:
 
+networks:
+  travel-net:
+    external: true
+
+services:
   # =========================
   # AUTH DATABASE
   # =========================
@@ -19,6 +23,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks: [travel-net]
+    # ports:
+    #   - "5431:5432"
 
   # =========================
   # AUTH SERVICE
@@ -41,7 +48,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: 5558
     volumes:
       - auth_uploads:/app/uploads
-
+    networks: [travel-net]
 
   # =========================
   # ROUTE DATABASE
@@ -53,22 +60,24 @@ services:
       POSTGRES_DB: route_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 5558
-    ports:
-      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d route_db"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks: [travel-net]
+    # ports:
+    #   - "5433:5432"
 
   # =========================
-  # REDIS (для оффлайн маршрутов)
+  # REDIS (branch #2)
   # =========================
-  redis:
+  redis-core:
     image: redis:7
-    container_name: travel-redis
-    ports:
-      - "6379:6379"
+    container_name: redis-core
+    networks: [travel-net]
+    # ports:
+    #   - "6380:6379"
 
   # =========================
   # ROUTE PLANNING SERVICE
@@ -81,27 +90,25 @@ services:
     depends_on:
       route-db:
         condition: service_healthy
-      redis:
+      redis-core:
         condition: service_started
     ports:
-      - "8082:8082"
+      - "8087:8082"
     environment:
       SPRING_PROFILES_ACTIVE: docker
 
-      # PostgreSQL
       SPRING_DATASOURCE_URL: jdbc:postgresql://route-db:5432/route_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: 5558
 
-      # Redis
-      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_HOST: redis-core
       SPRING_REDIS_PORT: 6379
 
-      # Если есть Feign для poi-service
       APP_POI_SERVICE_URL: http://poi-service:8081
-
-
+      AUTH_SERVICE_URL: http://auth-service:8084/api
     restart: unless-stopped
+    networks: [travel-net]
+
   # =========================
   # PERSONALIZATION DATABASE
   # =========================
@@ -112,13 +119,14 @@ services:
       POSTGRES_DB: personalization_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 5558
-    ports:
-      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d personalization_db"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks: [travel-net]
+    # ports:
+    #   - "5434:5432"
 
   # =========================
   # PERSONALIZATION SERVICE
@@ -131,7 +139,7 @@ services:
     depends_on:
       personalization-db:
         condition: service_healthy
-      redis:
+      redis-core:
         condition: service_started
     ports:
       - "8085:8085"
@@ -143,8 +151,12 @@ services:
       DB_USERNAME: postgres
       DB_PASSWORD: 5558
 
-      REDIS_HOST: redis
+      REDIS_HOST: redis-core
       REDIS_PORT: 6379
+
+      AUTH_SERVICE_URL: http://auth-service:8084/api
+    networks: [travel-net]
+
   # =========================
   # NOTIFICATION DATABASE
   # =========================
@@ -155,13 +167,14 @@ services:
       POSTGRES_DB: notification_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 5558
-    ports:
-      - "5435:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres -d notification_db" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notification_db"]
       interval: 5s
       timeout: 5s
       retries: 20
+    networks: [travel-net]
+    # ports:
+    #   - "5435:5432"
 
   # =========================
   # RABBITMQ
@@ -176,10 +189,11 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
-      test: [ "CMD-SHELL", "rabbitmq-diagnostics -q ping" ]
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
       interval: 10s
       timeout: 5s
       retries: 20
+    networks: [travel-net]
 
   # =========================
   # NOTIFICATION SERVICE
@@ -194,7 +208,7 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      redis:
+      redis-core:
         condition: service_started
     ports:
       - "8086:8086"
@@ -202,22 +216,21 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8086
 
-      # PostgreSQL
       DB_URL: jdbc:postgresql://notification-db:5432/notification_db
       DB_USERNAME: postgres
       DB_PASSWORD: 5558
 
-      # Redis
-      REDIS_HOST: redis
+      REDIS_HOST: redis-core
       REDIS_PORT: 6379
 
-      # RabbitMQ
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: guest
       RABBITMQ_PASSWORD: guest
 
-      # Mail (если реально не настроено — лучше выключить)
       NOTIFICATION_EMAIL_ENABLED: "false"
       MAIL_USERNAME: ""
       MAIL_PASSWORD: ""
+
+      AUTH_SERVICE_URL: http://auth-service:8084/api
+    networks: [travel-net]
