@@ -12,7 +12,6 @@ import com.travelapp.review.model.entity.Review;
 import com.travelapp.review.model.entity.ReviewLike;
 import com.travelapp.review.repository.ReviewLikeRepository;
 import com.travelapp.review.repository.ReviewRepository;
-import com.travelapp.review.security.dto.AuthUser;
 import com.travelapp.review.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +21,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.travelapp.review.model.dto.InternalUserResponse;
+import com.travelapp.review.service.AuthUserService;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,7 +37,7 @@ public class ReviewServiceImpl implements ReviewService {
     private final ReviewLikeRepository reviewLikeRepository;
     private final ReviewMapper reviewMapper;
     private final PoiClient poiClient;
-    private final AuthUserResolverService authUserResolverService;
+    private final AuthUserService authUserService;
 
     @Override
     @Transactional
@@ -59,9 +61,11 @@ public class ReviewServiceImpl implements ReviewService {
         Review savedReview = reviewRepository.save(review);
         updatePoiRatingStats(request.getPoiId());
 
-        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
-        String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + userId;
-        String userAvatar = user != null ? user.getAvatarUrl() : null;
+        InternalUserResponse author = resolveUser(savedReview.getUserId());
+        String userName = author != null && author.getUsername() != null && !author.getUsername().isBlank()
+                ? author.getUsername()
+                : "User_" + userId;
+        String userAvatar = author != null ? author.getAvatarUrl() : null;
 
         return reviewMapper.toResponseWithUserInfo(savedReview, userName, userAvatar, false);
     }
@@ -75,8 +79,10 @@ public class ReviewServiceImpl implements ReviewService {
         boolean likedByCurrentUser = currentUserId != null
                 && reviewLikeRepository.existsByUserIdAndReviewId(currentUserId, id);
 
-        AuthUser user = authUserResolverService.getUserInfoSafe(review.getUserId());
-        String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + review.getUserId();
+        InternalUserResponse user = resolveUser(review.getUserId());
+        String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
+                ? user.getUsername()
+                : "User_" + review.getUserId();
         String userAvatar = user != null ? user.getAvatarUrl() : null;
 
         return reviewMapper.toResponseWithUserInfo(review, userName, userAvatar, likedByCurrentUser);
@@ -91,8 +97,10 @@ public class ReviewServiceImpl implements ReviewService {
             boolean likedByCurrentUser = currentUserId != null
                     && reviewLikeRepository.existsByUserIdAndReviewId(currentUserId, review.getId());
 
-            AuthUser user = authUserResolverService.getUserInfoSafe(review.getUserId());
-            String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + review.getUserId();
+            InternalUserResponse user = resolveUser(review.getUserId());
+            String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
+                    ? user.getUsername()
+                    : "User_" + review.getUserId();
             String userAvatar = user != null ? user.getAvatarUrl() : null;
 
             return reviewMapper.toResponseWithUserInfo(review, userName, userAvatar, likedByCurrentUser);
@@ -104,8 +112,10 @@ public class ReviewServiceImpl implements ReviewService {
     public Page<ReviewResponse> getReviewsByUserId(Long userId, Pageable pageable) {
         Page<Review> reviews = reviewRepository.findVisibleByUserId(userId, pageable);
 
-        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
-        String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + userId;
+        InternalUserResponse user = resolveUser(userId);
+        String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
+                ? user.getUsername()
+                : "User_" + userId;
         String userAvatar = user != null ? user.getAvatarUrl() : null;
 
         return reviews.map(r -> reviewMapper.toResponseWithUserInfo(r, userName, userAvatar, false));
@@ -118,8 +128,10 @@ public class ReviewServiceImpl implements ReviewService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Review not found for POI: " + poiId + " and user: " + userId));
 
-        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
-        String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + userId;
+        InternalUserResponse user = resolveUser(userId);
+        String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
+                ? user.getUsername()
+                : "User_" + userId;
         String userAvatar = user != null ? user.getAvatarUrl() : null;
 
         return reviewMapper.toResponseWithUserInfo(review, userName, userAvatar, false);
@@ -143,8 +155,10 @@ public class ReviewServiceImpl implements ReviewService {
         Review updatedReview = reviewRepository.save(review);
         updatePoiRatingStats(updatedReview.getPoiId());
 
-        AuthUser user = authUserResolverService.getUserInfoSafe(updatedReview.getUserId());
-        String userName = user != null && user.getUsername() != null ? user.getUsername() : "User_" + updatedReview.getUserId();
+        InternalUserResponse user = resolveUser(updatedReview.getUserId());
+        String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
+                ? user.getUsername()
+                : "User_" + updatedReview.getUserId();
         String userAvatar = user != null ? user.getAvatarUrl() : null;
 
         return reviewMapper.toResponseWithUserInfo(updatedReview, userName, userAvatar, false);
@@ -228,8 +242,10 @@ public class ReviewServiceImpl implements ReviewService {
         review.setLikesCount(likesCount.intValue());
         reviewRepository.save(review);
 
-        AuthUser author = authUserResolverService.getUserInfoSafe(review.getUserId());
-        String userName = author != null && author.getUsername() != null ? author.getUsername() : "User_" + review.getUserId();
+        InternalUserResponse author = resolveUser(review.getUserId());
+        String userName = author != null && author.getUsername() != null && !author.getUsername().isBlank()
+                ? author.getUsername()
+                : "User_" + review.getUserId();
         String userAvatar = author != null ? author.getAvatarUrl() : null;
 
         return reviewMapper.toResponseWithUserInfo(review, userName, userAvatar, likedNow);
@@ -278,5 +294,14 @@ public class ReviewServiceImpl implements ReviewService {
         ratingUpdate.put("ratingCount", reviewCount != null ? reviewCount : 0L);
 
         poiClient.updatePoiRating(poiId, ratingUpdate);
+    }
+
+    private InternalUserResponse resolveUser(Long userId) {
+        try {
+            return authUserService.getUserInfo(userId);
+        } catch (Exception e) {
+            log.warn("Failed to resolve user info for userId={}", userId);
+            return null;
+        }
     }
 }

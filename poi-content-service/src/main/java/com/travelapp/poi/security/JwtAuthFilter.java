@@ -1,8 +1,8 @@
 package com.travelapp.poi.security;
 
 import com.travelapp.poi.exception.UnauthorizedException;
-import com.travelapp.poi.service.security.AuthClient;
-import com.travelapp.poi.service.security.dto.AuthUser;
+import com.travelapp.poi.client.AuthClient;
+import com.travelapp.poi.model.dto.InternalUserResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,7 +49,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         try {
-            AuthUser me = authClient.getCurrentUser(header);
+            InternalUserResponse me = authClient.getCurrentUser(header);
 
             // если заблокирован — считаем неавторизованным
             if (Boolean.TRUE.equals(me.getIsBlocked())) {

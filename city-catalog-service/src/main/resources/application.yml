@@ -73,6 +73,9 @@ management:
       prometheus:
         enabled: true
 
-auth-service:
-  base-url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
-  me-path: /users/me
+services:
+  auth:
+    url: http://auth-service:8084
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists

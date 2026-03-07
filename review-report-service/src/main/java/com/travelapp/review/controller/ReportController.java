@@ -4,6 +4,7 @@ import com.travelapp.review.model.dto.request.CreateReportRequest;
 import com.travelapp.review.model.dto.request.ProcessReportRequest;
 import com.travelapp.review.model.dto.request.UpdateReportRequest;
 import com.travelapp.review.model.dto.response.ReportResponse;
+import com.travelapp.review.security.SecurityUtils;
 import com.travelapp.review.service.ReportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -30,18 +31,18 @@ public class ReportController {
     @PostMapping
     @Operation(summary = "Создать жалобу")
     public ResponseEntity<ReportResponse> createReport(
-            @AuthenticationPrincipal(expression = "id") Long userId,
             @Valid @RequestBody CreateReportRequest request
     ) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.status(HttpStatus.CREATED).body(reportService.createReport(userId, request));
     }
 
     @GetMapping("/my")
     @Operation(summary = "Получить мои жалобы")
     public ResponseEntity<Page<ReportResponse>> getMyReports(
-            @AuthenticationPrincipal(expression = "id") Long userId,
             @PageableDefault(size = 20) Pageable pageable
     ) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(reportService.getReportsByUserId(userId, pageable));
     }
 
@@ -49,18 +50,18 @@ public class ReportController {
     @Operation(summary = "Обновить свою жалобу")
     public ResponseEntity<ReportResponse> updateReport(
             @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long userId,
             @Valid @RequestBody UpdateReportRequest request
     ) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(reportService.updateReport(id, userId, request));
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Удалить свою жалобу")
     public ResponseEntity<Void> deleteReport(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long userId
+            @PathVariable Long id
     ) {
+        Long userId = SecurityUtils.requireUserId();
         reportService.deleteReport(id, userId);
         return ResponseEntity.noContent().build();
     }
@@ -99,11 +100,11 @@ public class ReportController {
     @Operation(summary = "Обработать жалобу")
     public ResponseEntity<ReportResponse> processReport(
             @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long moderatorId,
             @Valid @RequestBody ProcessReportRequest request
     ) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(
-                reportService.processReport(id, moderatorId, request.getStatus(), request.getModeratorComment())
+                reportService.processReport(id, userId, request.getStatus(), request.getModeratorComment())
         );
     }
 }

@@ -1,7 +1,7 @@
 package com.travelapp.city.security;
 
-import com.travelapp.city.service.security.AuthClient;
-import com.travelapp.city.service.security.dto.AuthUser;
+import com.travelapp.city.client.AuthClient;
+import com.travelapp.city.model.dto.InternalUserResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,7 +44,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         try {
-            AuthUser me = authClient.getCurrentUser(header);
+            InternalUserResponse me = authClient.getCurrentUser(header);
 
             if (Boolean.TRUE.equals(me.getIsBlocked())) {
                 SecurityContextHolder.clearContext();

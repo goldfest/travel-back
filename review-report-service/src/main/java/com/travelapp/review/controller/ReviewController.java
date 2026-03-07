@@ -4,6 +4,7 @@ import com.travelapp.review.model.dto.request.CreateReviewRequest;
 import com.travelapp.review.model.dto.request.UpdateReviewRequest;
 import com.travelapp.review.model.dto.response.PoiReviewStatsResponse;
 import com.travelapp.review.model.dto.response.ReviewResponse;
+import com.travelapp.review.security.SecurityUtils;
 import com.travelapp.review.service.ReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,9 +40,9 @@ public class ReviewController {
             @ApiResponse(responseCode = "409", description = "Пользователь уже оставил отзыв для этого POI")
     })
     public ResponseEntity<ReviewResponse> createReview(
-            @AuthenticationPrincipal(expression = "id") Long userId,
             @Valid @RequestBody CreateReviewRequest request
     ) {
+        Long userId = SecurityUtils.requireUserId();
         ReviewResponse response = reviewService.createReview(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -53,10 +54,10 @@ public class ReviewController {
             @ApiResponse(responseCode = "404", description = "Отзыв не найден")
     })
     public ResponseEntity<ReviewResponse> getReview(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long currentUserId
+            @PathVariable Long id
     ) {
-        ReviewResponse response = reviewService.getReviewById(id, currentUserId);
+        Long userId = SecurityUtils.requireUserId();
+        ReviewResponse response = reviewService.getReviewById(id, userId);
         return ResponseEntity.ok(response);
     }
 
@@ -65,11 +66,11 @@ public class ReviewController {
     @ApiResponses(@ApiResponse(responseCode = "200", description = "Список отзывов получен"))
     public ResponseEntity<Page<ReviewResponse>> getReviewsByPoiId(
             @PathVariable Long poiId,
-            @AuthenticationPrincipal(expression = "id") Long currentUserId,
             @Parameter(description = "Параметры пагинации")
             @PageableDefault(size = 20) Pageable pageable
     ) {
-        Page<ReviewResponse> reviews = reviewService.getReviewsByPoiId(poiId, currentUserId, pageable);
+        Long userId = SecurityUtils.requireUserId();
+        Page<ReviewResponse> reviews = reviewService.getReviewsByPoiId(poiId, userId, pageable);
         return ResponseEntity.ok(reviews);
     }
 
@@ -112,9 +113,9 @@ public class ReviewController {
     })
     public ResponseEntity<ReviewResponse> updateReview(
             @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long userId,
             @Valid @RequestBody UpdateReviewRequest request
     ) {
+        Long userId = SecurityUtils.requireUserId();
         ReviewResponse response = reviewService.updateReview(id, userId, request);
         return ResponseEntity.ok(response);
     }
@@ -127,9 +128,9 @@ public class ReviewController {
             @ApiResponse(responseCode = "404", description = "Отзыв не найден")
     })
     public ResponseEntity<Void> deleteReview(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long userId
+            @PathVariable Long id
     ) {
+        Long userId = SecurityUtils.requireUserId();
         reviewService.deleteReview(id, userId);
         return ResponseEntity.noContent().build();
     }
@@ -141,9 +142,9 @@ public class ReviewController {
             @ApiResponse(responseCode = "404", description = "Отзыв не найден")
     })
     public ResponseEntity<ReviewResponse> toggleLike(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long userId
+            @PathVariable Long id
     ) {
+        Long userId = SecurityUtils.requireUserId();
         ReviewResponse response = reviewService.toggleLike(id, userId);
         return ResponseEntity.ok(response);
     }
@@ -160,9 +161,9 @@ public class ReviewController {
     @Operation(summary = "Проверить, оставил ли пользователь отзыв", description = "Проверяет, оставлял ли текущий пользователь отзыв для указанного POI")
     @ApiResponses(@ApiResponse(responseCode = "200", description = "Проверка выполнена"))
     public ResponseEntity<Boolean> hasUserReviewedPoi(
-            @PathVariable Long poiId,
-            @AuthenticationPrincipal(expression = "id") Long userId
+            @PathVariable Long poiId
     ) {
+        Long userId = SecurityUtils.requireUserId();
         boolean hasReviewed = reviewService.hasUserReviewedPoi(userId, poiId);
         return ResponseEntity.ok(hasReviewed);
     }
@@ -175,10 +176,10 @@ public class ReviewController {
             @ApiResponse(responseCode = "404", description = "Отзыв не найден")
     })
     public ResponseEntity<Void> hideReview(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long moderatorId
+            @PathVariable Long id
     ) {
-        reviewService.hideReview(id, moderatorId);
+        Long userId = SecurityUtils.requireUserId();
+        reviewService.hideReview(id, userId);
         return ResponseEntity.ok().build();
     }
 
@@ -190,10 +191,10 @@ public class ReviewController {
             @ApiResponse(responseCode = "404", description = "Отзыв не найден")
     })
     public ResponseEntity<Void> unhideReview(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(expression = "id") Long moderatorId
+            @PathVariable Long id
     ) {
-        reviewService.unhideReview(id, moderatorId);
+        Long userId = SecurityUtils.requireUserId();
+        reviewService.unhideReview(id, userId);
         return ResponseEntity.ok().build();
     }
 }

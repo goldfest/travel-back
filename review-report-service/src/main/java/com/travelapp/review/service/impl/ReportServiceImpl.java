@@ -3,13 +3,14 @@ package com.travelapp.review.service.impl;
 import com.travelapp.review.client.PoiClient;
 import com.travelapp.review.exception.ResourceNotFoundException;
 import com.travelapp.review.mapper.ReportMapper;
+import com.travelapp.review.model.dto.InternalUserResponse;
 import com.travelapp.review.model.dto.request.CreateReportRequest;
 import com.travelapp.review.model.dto.request.UpdateReportRequest;
 import com.travelapp.review.model.dto.response.ReportResponse;
 import com.travelapp.review.model.entity.Report;
 import com.travelapp.review.repository.ReportRepository;
 import com.travelapp.review.repository.ReviewRepository;
-import com.travelapp.review.security.dto.AuthUser;
+import com.travelapp.review.service.AuthUserService;
 import com.travelapp.review.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +28,7 @@ public class ReportServiceImpl implements ReportService {
     private final ReviewRepository reviewRepository;
     private final ReportMapper reportMapper;
     private final PoiClient poiClient;
-    private final AuthUserResolverService authUserResolverService;
+    private final AuthUserService authUserService;
 
     @Override
     @Transactional
@@ -198,15 +199,25 @@ public class ReportServiceImpl implements ReportService {
     }
 
     private String resolveUserName(Long userId, boolean moderator) {
-        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
-        if (user != null && user.getUsername() != null && !user.getUsername().isBlank()) {
-            return user.getUsername();
+        try {
+            InternalUserResponse user = authUserService.getUserInfo(userId);
+            if (user != null && user.getUsername() != null && !user.getUsername().isBlank()) {
+                return user.getUsername();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve username for userId={}", userId);
         }
+
         return moderator ? "Moderator_" + userId : "User_" + userId;
     }
 
     private String resolveUserAvatar(Long userId) {
-        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
-        return user != null ? user.getAvatarUrl() : null;
+        try {
+            InternalUserResponse user = authUserService.getUserInfo(userId);
+            return user != null ? user.getAvatarUrl() : null;
+        } catch (Exception e) {
+            log.warn("Failed to resolve avatar for userId={}", userId);
+            return null;
+        }
     }
 }

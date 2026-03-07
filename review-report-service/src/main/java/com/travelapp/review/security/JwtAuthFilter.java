@@ -1,13 +1,15 @@
-package com.travelapp.review.config;
+package com.travelapp.review.security;
 
 import com.travelapp.review.client.AuthClient;
-import com.travelapp.review.security.dto.AuthUser;
-import feign.FeignException;
+import com.travelapp.review.exception.UnauthorizedException;
+import com.travelapp.review.model.dto.InternalUserResponse;
+import com.travelapp.review.security.AuthPrincipal;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -22,7 +24,8 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
-public class TokenValidationFilter extends OncePerRequestFilter {
+@Slf4j
+public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final AuthClient authClient;
 
@@ -33,45 +36,53 @@ public class TokenValidationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
 
-        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
-
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
         if (SecurityContextHolder.getContext().getAuthentication() != null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        try {
-            AuthUser user = authClient.getCurrentUser(authHeader);
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authHeader == null || authHeader.isBlank() || !authHeader.trim().startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
-            if (user == null || user.getId() == null || Boolean.TRUE.equals(user.getIsBlocked())) {
-                SecurityContextHolder.clearContext();
-                filterChain.doFilter(request, response);
-                return;
+        try {
+            InternalUserResponse me = authClient.getCurrentUser(authHeader);
+
+            if (Boolean.TRUE.equals(me.getIsBlocked())) {
+                throw new UnauthorizedException("User is blocked");
             }
 
-            String role = user.getRole() == null ? "USER" : user.getRole().trim().toUpperCase();
-            if (!role.startsWith("ROLE_")) {
+            String role = me.getRole() == null ? "USER" : me.getRole().trim().toUpperCase();
+            if (role.equals("ADMIN")) {
+                role = "ROLE_ADMIN";
+            } else if (!role.startsWith("ROLE_")) {
                 role = "ROLE_" + role;
             }
 
-            List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+            AuthPrincipal principal = new AuthPrincipal(
+                    me.getId(),
+                    me.getRole(),
+                    me.getStatus(),
+                    me.getIsBlocked()
+            );
 
             UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(user, null, authorities);
+                    new UsernamePasswordAuthenticationToken(
+                            principal,
+                            null,
+                            List.of(new SimpleGrantedAuthority(role))
+                    );
 
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        } catch (FeignException.Unauthorized | FeignException.Forbidden e) {
-            SecurityContextHolder.clearContext();
-        } catch (FeignException e) {
+        } catch (UnauthorizedException e) {
+            log.debug("Unauthorized token: {}", e.getMessage());
             SecurityContextHolder.clearContext();
         } catch (Exception e) {
+            log.warn("Auth filter failed: {}", e.toString());
             SecurityContextHolder.clearContext();
         }
 

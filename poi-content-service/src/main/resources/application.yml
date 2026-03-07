@@ -52,9 +52,9 @@ services:
     base-url: ${CITY_SERVICE_URL:http://localhost:8082/api/cities}
   review:
     base-url: ${REVIEW_SERVICE_URL:http://localhost:8083/api/reviews}
+  auth:
+    url: http://auth-service:8084
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
 
-auth-service:
-  base-url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
-  me-path: ${AUTH_ME_PATH:/users/me}
-  connect-timeout: 2s
-  response-timeout: 3s

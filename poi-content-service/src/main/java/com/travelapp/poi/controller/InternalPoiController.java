@@ -1,7 +1,6 @@
 package com.travelapp.poi.controller;
 
 import com.travelapp.poi.exception.PoiNotFoundException;
-import com.travelapp.poi.exception.ResourceNotFoundException;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.repository.PoiRepository;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -37,7 +36,7 @@ public class InternalPoiController {
         Object ratingCount = request.get("ratingCount");
 
         if (averageRating != null) {
-            poi.setAverageRating(toDouble(averageRating));
+            //poi.setAverageRating(toDouble(averageRating));
         }
         if (ratingCount != null) {
             poi.setRatingCount(toLong(ratingCount).intValue());
@@ -55,9 +54,9 @@ public class InternalPoiController {
         Poi poi = poiRepository.findById(poiId)
                 .orElseThrow(() -> new PoiNotFoundException(poiId));
 
-        Integer current = poi.getReportsCount() == null ? 0 : poi.getReportsCount();
-        poi.setReportsCount(current + 1);
-        poiRepository.save(poi);
+//        Integer current = poi.getReportsCount() == null ? 0 : poi.getReportsCount();
+//        poi.setReportsCount(current + 1);
+//        poiRepository.save(poi);
 
         return ResponseEntity.ok().build();
     }
@@ -74,7 +73,7 @@ public class InternalPoiController {
         response.put("cityId", poi.getCityId());
         response.put("averageRating", poi.getAverageRating());
         response.put("ratingCount", poi.getRatingCount());
-        response.put("reportsCount", poi.getReportsCount());
+        //response.put("reportsCount", poi.getReportsCount());
 
         return ResponseEntity.ok(response);
     }
