@@ -1,5 +1,6 @@
 package com.travelapp.city.security;
 
+import com.travelapp.city.exception.UnauthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -10,14 +11,14 @@ public final class SecurityUtils {
     public static AuthPrincipal requirePrincipal() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !(auth.getPrincipal() instanceof AuthPrincipal p)) {
-            throw new RuntimeException("Unauthorized");
+            throw new UnauthorizedException("Unauthorized");
         }
         return p;
     }
 
     public static Long requireUserId() {
         AuthPrincipal p = requirePrincipal();
-        if (p.getId() == null) throw new RuntimeException("Unauthorized");
+        if (p.getId() == null) throw new UnauthorizedException("Unauthorized");
         return p.getId();
     }
 

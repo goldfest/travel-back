@@ -1,4 +1,4 @@
-package com.travelapp.poi.exception;
+package com.travelapp.review.exception;
 
 public class UnauthorizedException extends RuntimeException {
     public UnauthorizedException(String message) {

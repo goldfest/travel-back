@@ -7,65 +7,56 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
+@EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
-    private final RestAuthenticationEntryPoint authenticationEntryPoint;
+    private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(eh -> eh.authenticationEntryPoint(authenticationEntryPoint))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(restAuthenticationEntryPoint))
                 .authorizeHttpRequests(auth -> auth
-
-                        // swagger / actuator
                         .requestMatchers(
+                                "/swagger-ui.html",
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**",
+                                "/api-docs/**",
                                 "/actuator/**"
                         ).permitAll()
 
-                        // -------- PUBLIC READ --------
-
                         .requestMatchers(HttpMethod.GET,
                                 "/pois/**",
-                                "/poi-types/**",
-                                "/import/tasks/**",
-                                "/import/tasks",
-                                "/import/tasks/**"
+                                "/poi-types/**"
                         ).permitAll()
 
-                        .requestMatchers(HttpMethod.POST, "/pois/search").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/pois").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.PUT, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.DELETE, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
 
-                        // -------- ADMIN ONLY --------
+                        .requestMatchers(HttpMethod.GET, "/internal/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/internal/**").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/internal/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/internal/**").authenticated()
 
-                        .requestMatchers(HttpMethod.POST, "/import/start").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/import/tasks/*/cancel").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/import/tasks/*/retry").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/poi-types").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.PUT, "/poi-types/**").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.DELETE, "/poi-types/**").hasAnyRole("ADMIN", "MODERATOR")
 
-                        .requestMatchers(HttpMethod.POST, "/pois/*/verify").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/pois/*/unverify").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/pois/unverified").hasRole("ADMIN")
-
-                        .requestMatchers(HttpMethod.POST, "/poi-types").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/poi-types/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/poi-types/**").hasRole("ADMIN")
-
-                        // -------- AUTHENTICATED --------
-
-                        .requestMatchers(HttpMethod.POST, "/pois").authenticated()
-                        .requestMatchers(HttpMethod.PUT, "/pois/**").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/pois/**").authenticated()
+                        .requestMatchers("/import/**").hasAnyRole("ADMIN", "MODERATOR")
 
                         .anyRequest().authenticated()
                 )

@@ -27,11 +27,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/swagger-ui/**", "/api-docs/**", "/actuator/**").permitAll()
 
-                        // Public read (справочник городов)
-                        .requestMatchers(HttpMethod.GET, "/v1/**").permitAll()
-
-                        // Endpoint "мой домашний город" требует авторизацию
                         .requestMatchers(HttpMethod.GET, "/v1/users/me/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/v1/**").permitAll()
 
                         // Любые изменения справочника — только ADMIN
                         .requestMatchers(HttpMethod.POST, "/v1/**").hasRole("ADMIN")

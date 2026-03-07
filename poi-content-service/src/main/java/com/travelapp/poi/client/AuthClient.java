@@ -1,6 +1,6 @@
-package com.travelapp.review.client;
+package com.travelapp.poi.client;
 
-import com.travelapp.review.model.dto.InternalUserResponse;
+import com.travelapp.poi.model.dto.InternalUserResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;

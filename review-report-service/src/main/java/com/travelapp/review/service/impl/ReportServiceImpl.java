@@ -1,6 +1,5 @@
 package com.travelapp.review.service.impl;
 
-import com.travelapp.review.client.NotificationClient;
 import com.travelapp.review.client.PoiClient;
 import com.travelapp.review.exception.ResourceNotFoundException;
 import com.travelapp.review.mapper.ReportMapper;
@@ -9,19 +8,15 @@ import com.travelapp.review.model.dto.request.UpdateReportRequest;
 import com.travelapp.review.model.dto.response.ReportResponse;
 import com.travelapp.review.model.entity.Report;
 import com.travelapp.review.repository.ReportRepository;
+import com.travelapp.review.repository.ReviewRepository;
+import com.travelapp.review.security.dto.AuthUser;
 import com.travelapp.review.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -29,250 +24,189 @@ import java.util.Map;
 public class ReportServiceImpl implements ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReviewRepository reviewRepository;
     private final ReportMapper reportMapper;
-    private final NotificationClient notificationClient;
     private final PoiClient poiClient;
+    private final AuthUserResolverService authUserResolverService;
 
     @Override
     @Transactional
     public ReportResponse createReport(Long userId, CreateReportRequest request) {
-        log.info("Creating report by user: {} with type: {}", userId, request.getReportType());
+        validateCreateRequest(request);
 
-        // Валидация цели отчета
-        if ((request.getReviewId() == null && request.getPoiId() == null) ||
-                (request.getReviewId() != null && request.getPoiId() != null)) {
-            throw new IllegalArgumentException("Report must target either a review or a POI");
-        }
-
-        // Проверяем существование цели (в реальном проекте через вызовы других сервисов)
-        if (request.getReviewId() != null) {
-            // Проверка существования отзыва
-            // reviewClient.checkReviewExists(request.getReviewId());
-        } else if (request.getPoiId() != null) {
+        if (request.getPoiId() != null) {
             boolean poiExists = poiClient.checkPoiExists(request.getPoiId());
             if (!poiExists) {
                 throw new ResourceNotFoundException("POI not found with id: " + request.getPoiId());
             }
+
+            try {
+                poiClient.reportPoi(request.getPoiId(), null);
+            } catch (Exception e) {
+                log.warn("Failed to notify poi-service about report for poiId={}", request.getPoiId());
+            }
+        }
+
+        if (request.getReviewId() != null && !reviewRepository.existsById(request.getReviewId())) {
+            throw new ResourceNotFoundException("Review not found with id: " + request.getReviewId());
         }
 
         Report report = reportMapper.toEntity(request);
         report.setUserId(userId);
 
-        Report savedReport = reportRepository.save(report);
+        if (report.getStatus() == null || report.getStatus().isBlank()) {
+            report.setStatus("pending");
+        }
 
-        log.info("Report created with id: {}", savedReport.getId());
-
-        // Отправляем уведомление о новом отчете (для модераторов)
-        sendNewReportNotification(savedReport);
-
-        return reportMapper.toResponse(savedReport);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ReportResponse getReportById(Long id) {
-        log.info("Fetching report by id: {}", id);
-
-        Report report = reportRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
-
-        // Получаем дополнительную информацию о цели отчета
-        String targetTitle = getTargetTitle(report);
-        String handledByUserName = report.getHandledByUserId() != null ?
-                "Moderator_" + report.getHandledByUserId() : null;
-
-        return reportMapper.toResponseWithDetails(report, handledByUserName, targetTitle);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Page<ReportResponse> getAllReports(Pageable pageable) {
-        log.info("Fetching all reports with page: {}", pageable);
-
-        Page<Report> reports = reportRepository.findAll(pageable);
-
-        return reports.map(report -> {
-            String targetTitle = getTargetTitle(report);
-            String handledByUserName = report.getHandledByUserId() != null ?
-                    "Moderator_" + report.getHandledByUserId() : null;
-
-            return reportMapper.toResponseWithDetails(report, handledByUserName, targetTitle);
-        });
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Page<ReportResponse> getReportsByStatus(String status, Pageable pageable) {
-        log.info("Fetching reports with status: {} and page: {}", status, pageable);
-
-        validateStatus(status);
-
-        Page<Report> reports = reportRepository.findByStatus(status, pageable);
-
-        return reports.map(report -> {
-            String targetTitle = getTargetTitle(report);
-            return reportMapper.toResponseWithDetails(report, null, targetTitle);
-        });
+        Report saved = reportRepository.save(report);
+        return enrich(saved);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getReportsByUserId(Long userId, Pageable pageable) {
-        log.info("Fetching reports by user: {} with page: {}", userId, pageable);
+        return reportRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
+                .map(this::enrich);
+    }
 
-        Page<Report> reports = reportRepository.findByUserId(userId, pageable);
+    @Override
+    @Transactional
+    public ReportResponse updateReport(Long id, Long userId, UpdateReportRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
 
-        return reports.map(report -> {
-            String targetTitle = getTargetTitle(report);
-            String handledByUserName = report.getHandledByUserId() != null ?
-                    "Moderator_" + report.getHandledByUserId() : null;
+        if (!report.getUserId().equals(userId)) {
+            throw new SecurityException("User is not authorized to update this report");
+        }
 
-            return reportMapper.toResponseWithDetails(report, handledByUserName, targetTitle);
-        });
+        if (!isPending(report.getStatus())) {
+            throw new IllegalArgumentException("Only pending report can be updated");
+        }
+
+        if (request.getComment() != null) {
+            report.setComment(request.getComment());
+        }
+        if (request.getPhotoUrl() != null) {
+            report.setPhotoUrl(request.getPhotoUrl());
+        }
+
+        Report saved = reportRepository.save(report);
+        return enrich(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteReport(Long id, Long userId) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
+
+        if (!report.getUserId().equals(userId)) {
+            throw new SecurityException("User is not authorized to delete this report");
+        }
+
+        if (!isPending(report.getStatus())) {
+            throw new IllegalArgumentException("Only pending report can be deleted");
+        }
+
+        reportRepository.delete(report);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ReportResponse> getAllReports(Pageable pageable) {
+        return reportRepository.findAllByOrderByCreatedAtDesc(pageable)
+                .map(this::enrich);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ReportResponse> getReportsByStatus(String status, Pageable pageable) {
+        return reportRepository.findByStatusOrderByCreatedAtDesc(status.toLowerCase(), pageable)
+                .map(this::enrich);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getReportsByModeratorId(Long moderatorId, Pageable pageable) {
-        log.info("Fetching reports handled by moderator: {} with page: {}", moderatorId, pageable);
-
-        Page<Report> reports = reportRepository.findByModeratorId(moderatorId, pageable);
-
-        return reports.map(report -> {
-            String targetTitle = getTargetTitle(report);
-            return reportMapper.toResponseWithDetails(report, "Moderator_" + moderatorId, targetTitle);
-        });
-    }
-
-    @Override
-    @Transactional
-    @CacheEvict(value = "pendingReportsCount", allEntries = true)
-    public ReportResponse updateReport(Long id, Long moderatorId, UpdateReportRequest request) {
-        log.info("Updating report: {} by moderator: {}", id, moderatorId);
-
-        Report report = reportRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
-
-        if (request.getStatus() != null) {
-            validateStatus(request.getStatus());
-
-            report.setStatus(request.getStatus());
-            report.setHandledByUserId(moderatorId);
-            report.setHandledAt(LocalDateTime.now());
-
-            // Если жалоба одобрена, принимаем меры (скрываем отзыв и т.д.)
-            if ("approved".equals(request.getStatus())) {
-                handleApprovedReport(report);
-            }
-
-            // Отправляем уведомление пользователю о результате модерации
-            sendReportResolutionNotification(report, request.getModeratorComment());
-        }
-
-        Report updatedReport = reportRepository.save(report);
-
-        log.info("Report updated: {}", id);
-
-        String targetTitle = getTargetTitle(updatedReport);
-        String handledByUserName = "Moderator_" + moderatorId;
-
-        return reportMapper.toResponseWithDetails(updatedReport, handledByUserName, targetTitle);
-    }
-
-    @Override
-    @Transactional
-    @CacheEvict(value = "pendingReportsCount", allEntries = true)
-    public void deleteReport(Long id, Long moderatorId) {
-        log.info("Deleting report: {} by moderator: {}", id, moderatorId);
-
-        Report report = reportRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
-
-        reportRepository.delete(report);
-
-        log.info("Report deleted: {}", id);
+        return reportRepository.findByHandledByUserIdOrderByCreatedAtDesc(moderatorId, pageable)
+                .map(this::enrich);
     }
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "pendingReportsCount")
     public Long getPendingReportsCount() {
-        log.info("Fetching pending reports count");
-        return reportRepository.countPendingReports();
+        return reportRepository.countByStatus("pending");
     }
 
     @Override
     @Transactional
-    @CacheEvict(value = "pendingReportsCount", allEntries = true)
-    public void processReport(Long id, Long moderatorId, String status, String comment) {
-        log.info("Processing report: {} by moderator: {} with status: {}", id, moderatorId, status);
+    public ReportResponse processReport(Long id, Long moderatorId, String status, String moderatorComment) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
 
-        UpdateReportRequest request = UpdateReportRequest.builder()
-                .status(status)
-                .moderatorComment(comment)
-                .build();
+        String normalizedStatus = normalizeModerationStatus(status);
 
-        updateReport(id, moderatorId, request);
+        report.setStatus(normalizedStatus);
+        report.setHandledByUserId(moderatorId);
+        report.setHandledAt(java.time.LocalDateTime.now());
+
+        if (moderatorComment != null && !moderatorComment.isBlank()) {
+            report.setModeratorComment(moderatorComment);
+        }
+
+        Report saved = reportRepository.save(report);
+        return enrich(saved);
     }
 
-    private void validateStatus(String status) {
-        if (!"pending".equals(status) && !"approved".equals(status) && !"rejected".equals(status)) {
-            throw new IllegalArgumentException("Invalid report status: " + status);
+    private void validateCreateRequest(CreateReportRequest request) {
+        boolean hasReview = request.getReviewId() != null;
+        boolean hasPoi = request.getPoiId() != null;
+
+        if (hasReview == hasPoi) {
+            throw new IllegalArgumentException("Report must target either reviewId or poiId");
         }
     }
 
-    private String getTargetTitle(Report report) {
-        if (report.getReviewId() != null) {
-            return "Review #" + report.getReviewId();
-        } else if (report.getPoiId() != null) {
-            return "POI #" + report.getPoiId();
+    private String normalizeModerationStatus(String status) {
+        if (status == null || status.isBlank()) {
+            throw new IllegalArgumentException("Status is required");
         }
-        return "Unknown target";
+
+        String normalized = status.trim().toLowerCase();
+        if (!normalized.equals("approved") && !normalized.equals("rejected")) {
+            throw new IllegalArgumentException("Allowed statuses: approved, rejected");
+        }
+        return normalized;
     }
 
-    private void sendNewReportNotification(Report report) {
-        // Отправляем уведомление модераторам о новой жалобе
-        Map<String, Object> notificationData = new HashMap<>();
-        notificationData.put("reportId", report.getId());
-        notificationData.put("reportType", report.getReportType());
-        notificationData.put("targetType", report.getReviewId() != null ? "review" : "poi");
-        notificationData.put("targetId", report.getReviewId() != null ? report.getReviewId() : report.getPoiId());
-
-        notificationClient.sendModeratorNotification("new_report", notificationData);
-
-        log.info("New report notification sent for report: {}", report.getId());
+    private boolean isPending(String status) {
+        return status != null && status.equalsIgnoreCase("pending");
     }
 
-    private void sendReportResolutionNotification(Report report, String moderatorComment) {
-        // Отправляем уведомление пользователю о результате модерации
-        Map<String, Object> userNotificationData = new HashMap<>();
-        userNotificationData.put("reportId", report.getId());
-        userNotificationData.put("status", report.getStatus());
-        userNotificationData.put("comment", moderatorComment);
-        userNotificationData.put("handledAt", report.getHandledAt());
+    private ReportResponse enrich(Report report) {
+        ReportResponse response = reportMapper.toResponse(report);
 
-        notificationClient.sendUserNotification(report.getUserId(), "report_resolution", userNotificationData);
+        response.setUserName(resolveUserName(report.getUserId(), false));
+        response.setUserAvatarUrl(resolveUserAvatar(report.getUserId()));
 
-        log.info("Report resolution notification sent to user: {} for report: {}",
-                report.getUserId(), report.getId());
+        if (report.getHandledByUserId() != null) {
+            response.setHandledByUserName(resolveUserName(report.getHandledByUserId(), true));
+            response.setHandledByUserAvatarUrl(resolveUserAvatar(report.getHandledByUserId()));
+        }
+
+        return response;
     }
 
-    private void handleApprovedReport(Report report) {
-        // Если жалоба на отзыв - скрываем отзыв
-        if (report.getReviewId() != null) {
-            // Здесь должен быть вызов ReviewService для скрытия отзыва
-            // reviewService.hideReview(report.getReviewId(), report.getHandledByUserId());
-            log.info("Report approved: hiding review {}", report.getReviewId());
+    private String resolveUserName(Long userId, boolean moderator) {
+        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
+        if (user != null && user.getUsername() != null && !user.getUsername().isBlank()) {
+            return user.getUsername();
         }
-        // Если жалоба на POI - отправляем уведомление администратору POI сервиса
-        else if (report.getPoiId() != null) {
-            Map<String, Object> poiReportData = new HashMap<>();
-            poiReportData.put("reportId", report.getId());
-            poiReportData.put("reportType", report.getReportType());
-            poiReportData.put("comment", report.getComment());
+        return moderator ? "Moderator_" + userId : "User_" + userId;
+    }
 
-            poiClient.notifyPoiIssue(report.getPoiId(), poiReportData);
-            log.info("Report approved: notifying about POI issue {}", report.getPoiId());
-        }
+    private String resolveUserAvatar(Long userId) {
+        AuthUser user = authUserResolverService.getUserInfoSafe(userId);
+        return user != null ? user.getAvatarUrl() : null;
     }
 }

@@ -2,7 +2,7 @@ spring:
   cache:
     type: redis
     redis:
-      time-to-live: ${POI_CACHE_TTL_MS:600000} # 10 минут (лучше, чем 60 сек)
+      time-to-live: ${POI_CACHE_TTL_MS:600000}
       cache-null-values: false
 
   redis:
@@ -18,10 +18,9 @@ spring:
 services:
   city:
     base-url: ${CITY_SERVICE_URL:http://city-service:8082/api/cities}
-  auth:
-    base-url: ${AUTH_API_URL:http://auth-service:8084/api/auth}
   review:
-    base-url: ${REVIEW_SERVICE_URL:http://review-service:8083/api/review}
+    base-url: ${REVIEW_SERVICE_URL:http://review-service:8083/api/reviews}
 
 auth-service:
-  base-url: ${AUTH_SERVICE_URL:http://auth-service:8084}
+  base-url: ${AUTH_SERVICE_URL:http://auth-service:8084/api}
+  me-path: ${AUTH_ME_PATH:/users/me}

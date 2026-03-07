@@ -50,10 +50,8 @@ spring:
 services:
   city:
     base-url: ${CITY_SERVICE_URL:http://localhost:8082/api/cities}
-  auth:
-    base-url: ${AUTH_API_URL:http://localhost:8084/api/auth}
   review:
-    base-url: ${REVIEW_SERVICE_URL:http://localhost:8083/api/review}
+    base-url: ${REVIEW_SERVICE_URL:http://localhost:8083/api/reviews}
 
 auth-service:
   base-url: ${AUTH_SERVICE_URL:http://localhost:8084/api}

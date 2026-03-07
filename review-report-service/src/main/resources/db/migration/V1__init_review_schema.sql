@@ -144,3 +144,6 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_review_likes_trigger
     AFTER INSERT OR DELETE ON review_likes
     FOR EACH ROW EXECUTE FUNCTION update_review_likes_count();
+
+ALTER TABLE review_service.reports
+    ADD COLUMN IF NOT EXISTS moderator_comment VARCHAR(1000);

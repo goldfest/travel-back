@@ -1,22 +1,17 @@
 package com.travelapp.review.model.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
-import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+import lombok.*;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "reports", schema = "review_service")
-@Data
-@Builder
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@EntityListeners(AuditingEntityListener.class)
+@Builder
 public class Report {
 
     @Id
@@ -29,14 +24,15 @@ public class Report {
     @Column(length = 1000)
     private String comment;
 
-    @Column(length = 16)
-    @Builder.Default
-    private String status = "pending";
+    @Column(name = "moderator_comment", length = 1000)
+    private String moderatorComment;
+
+    @Column(nullable = false, length = 16)
+    private String status;
 
     @Column(name = "photo_url", length = 500)
     private String photoUrl;
 
-    @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -56,18 +52,12 @@ public class Report {
     private Long poiId;
 
     @PrePersist
-    @PreUpdate
-    private void validateReport() {
-        if ((reviewId == null && poiId == null) || (reviewId != null && poiId != null)) {
-            throw new IllegalArgumentException("Report must target either a review or a POI, but not both or none");
+    public void onCreate() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
         }
-
-        if (!status.equals("pending") && !status.equals("approved") && !status.equals("rejected")) {
-            throw new IllegalArgumentException("Invalid report status");
-        }
-
-        if (handledByUserId != null && handledAt == null) {
-            handledAt = LocalDateTime.now();
+        if (status == null || status.isBlank()) {
+            status = "pending";
         }
     }
 }

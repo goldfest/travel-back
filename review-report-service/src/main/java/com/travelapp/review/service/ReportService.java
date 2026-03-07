@@ -10,21 +10,19 @@ public interface ReportService {
 
     ReportResponse createReport(Long userId, CreateReportRequest request);
 
-    ReportResponse getReportById(Long id);
+    Page<ReportResponse> getReportsByUserId(Long userId, Pageable pageable);
+
+    ReportResponse updateReport(Long id, Long userId, UpdateReportRequest request);
+
+    void deleteReport(Long id, Long userId);
 
     Page<ReportResponse> getAllReports(Pageable pageable);
 
     Page<ReportResponse> getReportsByStatus(String status, Pageable pageable);
 
-    Page<ReportResponse> getReportsByUserId(Long userId, Pageable pageable);
-
     Page<ReportResponse> getReportsByModeratorId(Long moderatorId, Pageable pageable);
-
-    ReportResponse updateReport(Long id, Long moderatorId, UpdateReportRequest request);
-
-    void deleteReport(Long id, Long moderatorId);
 
     Long getPendingReportsCount();
 
-    void processReport(Long id, Long moderatorId, String status, String comment);
+    ReportResponse processReport(Long id, Long moderatorId, String status, String moderatorComment);
 }
