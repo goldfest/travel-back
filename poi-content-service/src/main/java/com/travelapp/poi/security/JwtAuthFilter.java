@@ -35,23 +35,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
 
-        // Если уже аутентифицирован — ничего не делаем
         if (SecurityContextHolder.getContext().getAuthentication() != null) {
             filterChain.doFilter(request, response);
             return;
         }
 
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
+
         if (header == null || header.isBlank() || !header.trim().startsWith("Bearer ")) {
-            // токена нет — просто идём дальше (доступ решит SecurityConfig)
+            log.debug("No Bearer token for {} {}", request.getMethod(), request.getRequestURI());
             filterChain.doFilter(request, response);
             return;
         }
 
         try {
+            log.debug("Validating token via auth-service for {} {}", request.getMethod(), request.getRequestURI());
+
             InternalUserResponse me = authClient.getCurrentUser(header);
 
-            // если заблокирован — считаем неавторизованным
             if (Boolean.TRUE.equals(me.getIsBlocked())) {
                 throw new UnauthorizedException("User is blocked");
             }
@@ -60,7 +61,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (role.equals("ADMIN")) role = "ROLE_ADMIN";
             else if (!role.startsWith("ROLE_")) role = "ROLE_" + role;
 
-            AuthPrincipal principal = new AuthPrincipal(me.getId(), me.getRole(), me.getStatus(), me.getIsBlocked());
+            AuthPrincipal principal = new AuthPrincipal(
+                    me.getId(),
+                    me.getRole(),
+                    me.getStatus(),
+                    me.getIsBlocked()
+            );
 
             UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     principal,
@@ -70,14 +76,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(auth);
 
+            log.info("Authenticated user id={}, role={} for {} {}", me.getId(), role, request.getMethod(), request.getRequestURI());
+
         } catch (UnauthorizedException e) {
-            // токен плохой/просрочен — просто не ставим auth и идём дальше;
-            // если эндпоинт требует auth, дальше сработает entry point (401)
-            log.debug("Unauthorized token: {}", e.getMessage());
+            log.warn("Unauthorized token for {} {}: {}", request.getMethod(), request.getRequestURI(), e.getMessage());
             SecurityContextHolder.clearContext();
         } catch (Exception e) {
-            // fail-closed: при проблемах с auth-service лучше НЕ давать доступ
-            log.warn("Auth filter failed: {}", e.toString());
+            log.error("Auth filter failed for {} {}: {}", request.getMethod(), request.getRequestURI(), e.getMessage(), e);
             SecurityContextHolder.clearContext();
         }
 

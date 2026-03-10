@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Table(name = "poi_media")
 @Getter
 @Setter
-@ToString
+@ToString(exclude = "poi")
 public class PoiMedia {
 
     @Id

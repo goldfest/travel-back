@@ -5,6 +5,7 @@ import com.travelapp.poi.model.dto.response.PoiTypeResponse;
 import com.travelapp.poi.security.SecurityUtils;
 import com.travelapp.poi.service.PoiTypeService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class PoiTypeController {
     private final PoiTypeService poiTypeService;
 
     @PostMapping
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(summary = "Create POI type", description = "Creates a new POI type (admin only)")
     public ResponseEntity<PoiTypeResponse> createPoiType(@Valid @RequestBody PoiTypeRequest request) {
         Long userId = SecurityUtils.requireUserId();

@@ -24,8 +24,7 @@ import java.util.Set;
 @Table(name = "poi")
 @Getter
 @Setter
-@ToString(exclude = {"features", "hours", "media", "sources"})
-@JsonInclude(JsonInclude.Include.NON_NULL)
+@ToString(exclude = {"features", "hours", "media", "sources", "poiType"})
 public class Poi {
 
     @Id
@@ -91,18 +90,17 @@ public class Poi {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "poi_type_id", nullable = false)
-    @JsonIgnore
     private PoiType poiType;
 
-    @JsonProperty("poiTypeCode")
+    /*@JsonProperty("poiTypeCode")
     public String getPoiTypeCode() {
         return poiType != null ? poiType.getCode() : null;
-    }
+    }*/
 
-    @JsonProperty("poiTypeName")
+    /*@JsonProperty("poiTypeName")
     public String getPoiTypeName() {
         return poiType != null ? poiType.getName() : null;
-    }
+    }*/
 
     @OneToMany(mappedBy = "poi", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<PoiFeature> features = new HashSet<>();

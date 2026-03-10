@@ -13,7 +13,7 @@ import java.time.LocalTime;
 @Table(name = "poi_hours")
 @Getter
 @Setter
-@ToString
+@ToString(exclude = "poi")
 public class PoiHours {
 
     @Id

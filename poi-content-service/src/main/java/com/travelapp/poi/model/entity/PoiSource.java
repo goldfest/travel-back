@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 @Table(name = "poi_source")
 @Getter
 @Setter
-@ToString
+@ToString(exclude = "poi")
 public class PoiSource {
 
     @Id
