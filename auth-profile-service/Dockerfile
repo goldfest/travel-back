@@ -10,20 +10,15 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-# su-exec нужен, чтобы запускать java от spring после chown
 RUN apk add --no-cache su-exec
 
-# jar
 COPY --from=builder /app/target/*.jar /app/app.jar
 
-# user
 RUN addgroup -S spring && adduser -S spring -G spring
 
-# entrypoint script
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 EXPOSE 8084
 
-# ВАЖНО: ENTRYPOINT от root, внутри скрипта запустим java от spring
 ENTRYPOINT ["/app/entrypoint.sh"]
