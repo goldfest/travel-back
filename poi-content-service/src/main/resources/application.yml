@@ -53,7 +53,7 @@ services:
   review:
     base-url: ${REVIEW_SERVICE_URL:http://localhost:8083/api/reviews}
   auth:
-    url: http://auth-service:8084
+    url: http://auth-service:8084/api
     me-path: /internal/users/me
     info-path: /internal/users/{id}/info
     exists-path: /internal/users/{id}/exists

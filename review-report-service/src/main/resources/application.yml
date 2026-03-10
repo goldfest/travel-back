@@ -83,7 +83,7 @@ management:
 
 services:
   auth:
-    url: http://auth-service:8084
+    url: http://auth-service:8084/api
     me-path: /internal/users/me
     info-path: /internal/users/{id}/info
     exists-path: /internal/users/{id}/exists

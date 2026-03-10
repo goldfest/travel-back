@@ -5,22 +5,13 @@ spring:
       time-to-live: ${POI_CACHE_TTL_MS:600000}
       cache-null-values: false
 
-  redis:
-    host: ${SPRING_REDIS_HOST:redis}
-    port: ${SPRING_REDIS_PORT:6379}
-    timeout: 2000
-    lettuce:
-      pool:
-        max-active: 8
-        max-idle: 8
-        min-idle: 0
-
-services:
-  city:
-    base-url: ${CITY_SERVICE_URL:http://city-service:8082/api/cities}
-  review:
-    base-url: ${REVIEW_SERVICE_URL:http://review-service:8083/api/reviews}
-
-auth-service:
-  base-url: ${AUTH_SERVICE_URL:http://auth-service:8084/api}
-  me-path: ${AUTH_ME_PATH:/users/me}
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:redis}
+      port: ${SPRING_REDIS_PORT:6379}
+      timeout: 2000
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
