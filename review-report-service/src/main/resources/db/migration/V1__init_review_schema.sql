@@ -125,25 +125,31 @@ GROUP BY poi_id;
 -- ===========================================
 
 -- Функция для подсчета лайков отзыва
-CREATE OR REPLACE FUNCTION update_review_likes_count()
+CREATE OR REPLACE FUNCTION review_service.update_review_likes_count()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        UPDATE reviews
-        SET likes_count = likes_count + 1
-        WHERE id = NEW.review_id;
-    ELSIF TG_OP = 'DELETE' THEN
-        UPDATE reviews
-        SET likes_count = likes_count - 1
-        WHERE id = OLD.review_id;
-    END IF;
-    RETURN NULL;
+UPDATE review_service.reviews
+SET likes_count = COALESCE(likes_count, 0) + 1
+WHERE id = NEW.review_id;
+RETURN NEW;
+ELSIF TG_OP = 'DELETE' THEN
+UPDATE review_service.reviews
+SET likes_count = GREATEST(COALESCE(likes_count, 0) - 1, 0)
+WHERE id = OLD.review_id;
+RETURN OLD;
+END IF;
+
+RETURN NULL;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_review_likes_trigger ON review_service.review_likes;
 
 CREATE TRIGGER update_review_likes_trigger
-    AFTER INSERT OR DELETE ON review_likes
-    FOR EACH ROW EXECUTE FUNCTION update_review_likes_count();
+    AFTER INSERT OR DELETE ON review_service.review_likes
+    FOR EACH ROW
+    EXECUTE FUNCTION review_service.update_review_likes_count();
 
 ALTER TABLE review_service.reports
     ADD COLUMN IF NOT EXISTS moderator_comment VARCHAR(1000);

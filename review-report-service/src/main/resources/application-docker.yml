@@ -4,8 +4,3 @@ spring:
     username: postgres
     password: 1234
 
-service:
-  auth:
-    url: http://auth-service:8084/api
-  poi:
-    url: http://poi-service:8081/api/poi

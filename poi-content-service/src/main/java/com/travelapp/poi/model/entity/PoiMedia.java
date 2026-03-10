@@ -42,7 +42,7 @@ public class PoiMedia {
     private Poi poi;
 
     public enum MediaType {
-        PHOTO, COVER, MENU, VIDEO
+        IMAGE, PHOTO, COVER, MENU, VIDEO
     }
 
     public enum ModerationStatus {

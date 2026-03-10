@@ -1,26 +1,24 @@
 package com.travelapp.review.config;
 
+import com.travelapp.review.security.BearerTokenProvider;
 import feign.RequestInterceptor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.http.HttpHeaders;
 
 @Configuration
+@RequiredArgsConstructor
 public class FeignClientConfig {
 
-    @Bean
-    public RequestInterceptor requestInterceptor() {
-        return requestTemplate -> {
-            // Передаем заголовок авторизации в Feign клиенты
-            ServletRequestAttributes attributes =
-                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+    private final BearerTokenProvider bearerTokenProvider;
 
-            if (attributes != null) {
-                String authorization = attributes.getRequest().getHeader("Authorization");
-                if (authorization != null) {
-                    requestTemplate.header("Authorization", authorization);
-                }
+    @Bean
+    public RequestInterceptor bearerTokenRequestInterceptor() {
+        return template -> {
+            String authHeader = bearerTokenProvider.getCurrentAuthorizationHeader();
+            if (authHeader != null && !authHeader.isBlank()) {
+                template.header(HttpHeaders.AUTHORIZATION, authHeader);
             }
         };
     }

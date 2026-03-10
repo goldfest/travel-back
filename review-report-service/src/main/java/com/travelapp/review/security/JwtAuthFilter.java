@@ -3,7 +3,6 @@ package com.travelapp.review.security;
 import com.travelapp.review.client.AuthClient;
 import com.travelapp.review.exception.UnauthorizedException;
 import com.travelapp.review.model.dto.InternalUserResponse;
-import com.travelapp.review.security.AuthPrincipal;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -71,7 +70,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
                             principal,
-                            null,
+                            authHeader, // важно: сохраняем Bearer token
                             List.of(new SimpleGrantedAuthority(role))
                     );
 

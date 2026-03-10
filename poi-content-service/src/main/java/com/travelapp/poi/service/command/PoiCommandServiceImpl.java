@@ -1,4 +1,4 @@
-package com.travelapp.poi.service.impl;
+package com.travelapp.poi.service.command;
 
 import com.travelapp.poi.exception.PoiNotFoundException;
 import com.travelapp.poi.exception.PoiTypeNotFoundException;
@@ -11,7 +11,6 @@ import com.travelapp.poi.model.entity.*;
 import com.travelapp.poi.repository.PoiRepository;
 import com.travelapp.poi.repository.PoiTypeRepository;
 import com.travelapp.poi.security.SecurityUtils;
-import com.travelapp.poi.service.command.PoiCommandService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;

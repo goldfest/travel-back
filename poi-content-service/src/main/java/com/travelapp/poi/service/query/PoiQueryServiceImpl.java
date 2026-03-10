@@ -1,4 +1,4 @@
-package com.travelapp.poi.service.impl;
+package com.travelapp.poi.service.query;
 
 import com.travelapp.poi.exception.PoiNotFoundException;
 import com.travelapp.poi.mapper.PoiMapper;
@@ -7,7 +7,6 @@ import com.travelapp.poi.model.dto.response.PoiResponse;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.model.entity.PoiHours;
 import com.travelapp.poi.repository.PoiRepository;
-import com.travelapp.poi.service.query.PoiQueryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -75,14 +74,12 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "pois", key = "{'city:', #cityId, #pageable.pageNumber, #pageable.pageSize, #pageable.sort}")
     public Page<PoiResponse> getPoisByCity(Long cityId, Pageable pageable) {
         return poiRepository.findByCityIdAndIsVerifiedTrue(cityId, pageable).map(this::enrichPoiResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "pois", key = "{'type:', #poiTypeId, #pageable.pageNumber, #pageable.pageSize, #pageable.sort}")
     public Page<PoiResponse> getPoisByType(Long poiTypeId, Pageable pageable) {
         return poiRepository.findByPoiTypeIdAndIsVerifiedTrue(poiTypeId, pageable).map(this::enrichPoiResponse);
     }

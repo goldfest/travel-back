@@ -34,6 +34,7 @@ public class PoiResponse {
 
     @JsonProperty("poiType")
     private PoiTypeResponse poiType;
+
     private Long cityId;
     private Long createdBy;
 
@@ -49,10 +50,7 @@ public class PoiResponse {
     @JsonProperty("sources")
     private List<PoiSourceResponse> sources;
 
-    // Distance from user (if calculated)
     private Double distanceKm;
-
-    // Current status (open/closed based on hours)
     private Boolean isOpenNow;
     private String currentStatus;
 

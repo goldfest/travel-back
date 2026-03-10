@@ -36,10 +36,8 @@ spring:
     type: simple
 
 service:
-  auth:
-    url: http://localhost:8084/api
   poi:
-    url: http://localhost:8081/api/poi
+    url: http://poi-service:8081/api/poi
 
 springdoc:
   api-docs:
