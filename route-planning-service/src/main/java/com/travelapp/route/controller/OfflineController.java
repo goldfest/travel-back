@@ -1,6 +1,7 @@
 package com.travelapp.route.controller;
 
 import com.travelapp.route.model.dto.response.RouteResponse;
+import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.OfflineRouteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/offline")
+@RequestMapping("/v1/offline")
 @RequiredArgsConstructor
 @Tag(name = "Offline Routes", description = "API для работы с оффлайн маршрутами")
 @Slf4j
@@ -26,10 +27,10 @@ public class OfflineController {
     @PostMapping("/routes/{routeId}/download")
     @Operation(summary = "Скачать маршрут для оффлайн использования")
     public ResponseEntity<byte[]> downloadRouteForOffline(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId,
             @RequestParam(defaultValue = "true") boolean includePoiDetails,
             @RequestParam(defaultValue = "true") boolean includeMapData) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Downloading route {} for offline use by user {}", routeId, userId);
 
@@ -50,8 +51,8 @@ public class OfflineController {
 
     @GetMapping("/routes")
     @Operation(summary = "Получить список оффлайн маршрутов")
-    public ResponseEntity<List<RouteResponse>> getOfflineRoutes(
-            @RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<List<RouteResponse>> getOfflineRoutes() {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Getting offline routes for user {}", userId);
 
@@ -63,8 +64,9 @@ public class OfflineController {
     @DeleteMapping("/routes/{routeId}")
     @Operation(summary = "Удалить маршрут из оффлайн хранилища")
     public ResponseEntity<Void> removeOfflineRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId) {
+        Long userId = SecurityUtils.requireUserId();
+
 
         log.info("Removing route {} from offline storage for user {}", routeId, userId);
 
@@ -75,7 +77,8 @@ public class OfflineController {
 
     @GetMapping("/storage/usage")
     @Operation(summary = "Получить информацию об использовании оффлайн хранилища")
-    public ResponseEntity<Object> getStorageUsage(@RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Object> getStorageUsage() {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Getting storage usage for user {}", userId);
 
@@ -86,7 +89,8 @@ public class OfflineController {
 
     @PostMapping("/sync")
     @Operation(summary = "Синхронизировать оффлайн данные")
-    public ResponseEntity<Void> syncOfflineData(@RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Void> syncOfflineData() {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Syncing offline data for user {}", userId);
 

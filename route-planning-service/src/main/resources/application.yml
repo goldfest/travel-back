@@ -1,24 +1,67 @@
-# application.yml
+server:
+  port: 8082
+  servlet:
+    context-path: /api/routes
+
 spring:
   application:
     name: route-planning-service
+
   profiles:
     active: dev
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/route_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:5558}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+    show-sql: false
+
+  cache:
+    type: ${SPRING_CACHE_TYPE:simple}
+
+  data:
+    redis:
+      repositories:
+        enabled: false
+
   redis:
-    host: ${REDIS_HOST:localhost}
-    port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
+    host: ${SPRING_REDIS_HOST:localhost}
+    port: ${SPRING_REDIS_PORT:6379}
+    password: ${SPRING_REDIS_PASSWORD:}
+    timeout: 6000
+
+services:
+  poi:
+    base-url: ${POI_SERVICE_URL:http://localhost:8081/api/poi}
+  auth:
+    url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
 
 app:
   offline:
     ttl-days: 30
     key-prefix: offline
-    storage-limit-bytes: 104857600 # 100 MB
-
-server:
-  port: 8082
-  servlet:
-    context-path: /api
+    storage-limit-bytes: 104857600
 
 springdoc:
   api-docs:

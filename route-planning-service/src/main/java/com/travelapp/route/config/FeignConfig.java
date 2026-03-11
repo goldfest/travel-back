@@ -2,12 +2,11 @@ package com.travelapp.route.config;
 
 import feign.Logger;
 import feign.RequestInterceptor;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 @Configuration
 public class FeignConfig {
@@ -20,24 +19,18 @@ public class FeignConfig {
     @Bean
     public RequestInterceptor requestInterceptor() {
         return requestTemplate -> {
-            // Передаем заголовки аутентификации
-            ServletRequestAttributes attributes = (ServletRequestAttributes)
-                    RequestContextHolder.getRequestAttributes();
+            ServletRequestAttributes attributes =
+                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
 
-            if (attributes != null) {
-                HttpServletRequest request = attributes.getRequest();
+            if (attributes == null) {
+                return;
+            }
 
-                // Передаем заголовок пользователя
-                String userId = request.getHeader("X-User-Id");
-                if (userId != null) {
-                    requestTemplate.header("X-User-Id", userId);
-                }
+            HttpServletRequest request = attributes.getRequest();
+            String authorization = request.getHeader("Authorization");
 
-                // Передаем заголовки авторизации
-                String authorization = request.getHeader("Authorization");
-                if (authorization != null) {
-                    requestTemplate.header("Authorization", authorization);
-                }
+            if (authorization != null && !authorization.isBlank()) {
+                requestTemplate.header("Authorization", authorization);
             }
         };
     }

@@ -5,6 +5,7 @@ import com.travelapp.route.model.dto.request.RouteOptimizationRequest;
 import com.travelapp.route.model.dto.request.RoutePointRequest;
 import com.travelapp.route.model.dto.request.RouteUpdateRequest;
 import com.travelapp.route.model.dto.response.RouteResponse;
+import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RouteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -21,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/routes")
+@RequestMapping("/v1/routes")
 @RequiredArgsConstructor
 @Tag(name = "Route Management", description = "API для управления маршрутами")
 public class RouteController {
@@ -31,8 +32,8 @@ public class RouteController {
     @PostMapping
     @Operation(summary = "Создать новый маршрут")
     public ResponseEntity<RouteResponse> createRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody RouteCreateRequest request) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.createRoute(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -40,8 +41,8 @@ public class RouteController {
     @GetMapping("/{id}")
     @Operation(summary = "Получить маршрут по ID")
     public ResponseEntity<RouteResponse> getRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.getRouteById(userId, id);
         return ResponseEntity.ok(response);
     }
@@ -67,8 +68,8 @@ public class RouteController {
     @GetMapping("/city/{cityId}")
     @Operation(summary = "Получить маршруты по городу")
     public ResponseEntity<List<RouteResponse>> getRoutesByCity(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long cityId) {
+        Long userId = SecurityUtils.requireUserId();
         List<RouteResponse> routes = routeService.getRoutesByCity(userId, cityId);
         return ResponseEntity.ok(routes);
     }
@@ -76,9 +77,9 @@ public class RouteController {
     @PutMapping("/{id}")
     @Operation(summary = "Обновить маршрут")
     public ResponseEntity<RouteResponse> updateRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @Valid @RequestBody RouteUpdateRequest request) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.updateRoute(userId, id, request);
         return ResponseEntity.ok(response);
     }
@@ -86,8 +87,8 @@ public class RouteController {
     @PostMapping("/{id}/archive")
     @Operation(summary = "Архивировать маршрут")
     public ResponseEntity<Void> archiveRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         routeService.archiveRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
@@ -95,8 +96,8 @@ public class RouteController {
     @PostMapping("/{id}/unarchive")
     @Operation(summary = "Разархивировать маршрут")
     public ResponseEntity<Void> unarchiveRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         routeService.unarchiveRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
@@ -104,8 +105,8 @@ public class RouteController {
     @DeleteMapping("/{id}")
     @Operation(summary = "Удалить маршрут")
     public ResponseEntity<Void> deleteRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         routeService.deleteRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
@@ -113,9 +114,9 @@ public class RouteController {
     @PostMapping("/{id}/duplicate")
     @Operation(summary = "Дублировать маршрут")
     public ResponseEntity<RouteResponse> duplicateRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @RequestParam(required = false) String newName) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.duplicateRoute(userId, id, newName);
         return ResponseEntity.ok(response);
     }
@@ -123,9 +124,9 @@ public class RouteController {
     @PostMapping("/{id}/points")
     @Operation(summary = "Добавить точку в маршрут")
     public ResponseEntity<RouteResponse> addPointToRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @Valid @RequestBody RoutePointRequest request) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.addPoiToRoute(
                 userId, id, request.getPoiId(), request.getDayNumber(), request.getOrderIndex());
         return ResponseEntity.ok(response);
@@ -134,9 +135,9 @@ public class RouteController {
     @DeleteMapping("/{id}/points/{poiId}")
     @Operation(summary = "Удалить точку из маршрута")
     public ResponseEntity<RouteResponse> removePointFromRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @PathVariable Long poiId) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.removePoiFromRoute(userId, id, poiId);
         return ResponseEntity.ok(response);
     }
@@ -144,9 +145,9 @@ public class RouteController {
     @PostMapping("/{id}/reorder")
     @Operation(summary = "Изменить порядок точек в маршруте")
     public ResponseEntity<RouteResponse> reorderPoints(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @RequestBody List<Long> pointIdsInOrder) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.reorderRoutePoints(userId, id, pointIdsInOrder);
         return ResponseEntity.ok(response);
     }
@@ -154,16 +155,17 @@ public class RouteController {
     @PostMapping("/{id}/optimize")
     @Operation(summary = "Оптимизировать маршрут")
     public ResponseEntity<RouteResponse> optimizeRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long id,
             @Valid @RequestBody RouteOptimizationRequest request) {
+        Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.optimizeRoute(userId, id, request.getOptimizationMode());
         return ResponseEntity.ok(response);
     }
 
     @GetMapping("/count")
     @Operation(summary = "Получить количество активных маршрутов")
-    public ResponseEntity<Long> countRoutes(@RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Long> countRoutes() {
+        Long userId = SecurityUtils.requireUserId();
         long count = routeService.countUserRoutes(userId);
         return ResponseEntity.ok(count);
     }
@@ -171,8 +173,8 @@ public class RouteController {
     @GetMapping("/check-name")
     @Operation(summary = "Проверить доступность имени маршрута")
     public ResponseEntity<Boolean> checkRouteName(
-            @RequestHeader("X-User-Id") Long userId,
             @RequestParam String name) {
+        Long userId = SecurityUtils.requireUserId();
         boolean available = routeService.isRouteNameAvailable(userId, name);
         return ResponseEntity.ok(available);
     }

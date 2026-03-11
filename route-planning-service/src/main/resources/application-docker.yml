@@ -1,4 +1,10 @@
 spring:
+  cache:
+    type: redis
+    redis:
+      time-to-live: ${ROUTE_CACHE_TTL_MS:600000}
+      cache-null-values: false
+
   datasource:
     url: jdbc:postgresql://route-db:5432/route_db
     username: postgres
@@ -20,9 +26,6 @@ spring:
     port: 6379
     timeout: 6000
 
-  cache:
-    type: redis
-
   data:
     redis:
       repositories:
@@ -30,6 +33,15 @@ spring:
 
 server:
   port: 8082
+
+services:
+  poi:
+    base-url: http://poi-service:8081/api/poi
+  auth:
+    url: http://auth-service:8084/api
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
 
 logging:
   level:

@@ -16,7 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/health")
+@RequestMapping("/v1/health")
 @RequiredArgsConstructor
 @Tag(name = "Health", description = "API для проверки состояния сервиса")
 @Slf4j

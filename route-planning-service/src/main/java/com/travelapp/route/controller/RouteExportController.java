@@ -1,5 +1,6 @@
 package com.travelapp.route.controller;
 
+import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RouteExportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -12,7 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/v1/export")
+@RequestMapping("/v1/export")
 @RequiredArgsConstructor
 @Tag(name = "Route Export", description = "API для экспорта маршрутов")
 @Slf4j
@@ -23,12 +24,12 @@ public class RouteExportController {
     @GetMapping("/routes/{routeId}/pdf")
     @Operation(summary = "Экспортировать маршрут в PDF")
     public ResponseEntity<byte[]> exportRouteToPdf(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId,
             @Parameter(description = "Включить карту")
             @RequestParam(defaultValue = "true") boolean includeMap,
             @Parameter(description = "Включить детали POI")
             @RequestParam(defaultValue = "true") boolean includePoiDetails) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Exporting route {} to PDF for user {}", routeId, userId);
 
@@ -47,8 +48,8 @@ public class RouteExportController {
     @GetMapping("/routes/{routeId}/gpx")
     @Operation(summary = "Экспортировать маршрут в GPX")
     public ResponseEntity<byte[]> exportRouteToGpx(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Exporting route {} to GPX for user {}", routeId, userId);
 
@@ -66,10 +67,10 @@ public class RouteExportController {
     @GetMapping("/routes/{routeId}/json")
     @Operation(summary = "Экспортировать маршрут в JSON")
     public ResponseEntity<byte[]> exportRouteToJson(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId,
             @Parameter(description = "Включить все детали")
             @RequestParam(defaultValue = "true") boolean includeAllDetails) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Exporting route {} to JSON for user {}", routeId, userId);
 
@@ -87,10 +88,10 @@ public class RouteExportController {
     @GetMapping("/routes/{routeId}/share")
     @Operation(summary = "Получить ссылку для шаринга маршрута")
     public ResponseEntity<String> getShareableLink(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long routeId,
             @Parameter(description = "Срок действия ссылки в днях", example = "7")
             @RequestParam(defaultValue = "7") int expiresInDays) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Generating shareable link for route {} for user {}", routeId, userId);
 

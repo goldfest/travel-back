@@ -1,6 +1,7 @@
 package com.travelapp.route.controller;
 
 import com.travelapp.route.model.dto.response.PoiResponse;
+import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RoutePlanningService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -13,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/route-planning")
+@RequestMapping("/v1/route-planning")
 @RequiredArgsConstructor
 @Tag(name = "Route Planning", description = "API для планирования маршрутов")
 @Slf4j
@@ -24,7 +25,6 @@ public class RoutePlanningController {
     @GetMapping("/nearest-toilet")
     @Operation(summary = "Найти ближайший туалет")
     public ResponseEntity<PoiResponse> findNearestToilet(
-            @RequestHeader("X-User-Id") Long userId,
             @Parameter(description = "Широта текущего местоположения")
             @RequestParam double latitude,
             @Parameter(description = "Долгота текущего местоположения")
@@ -35,6 +35,7 @@ public class RoutePlanningController {
             @RequestParam(defaultValue = "false") boolean freeOnly,
             @Parameter(description = "Требуется круглосуточный туалет")
             @RequestParam(defaultValue = "false") boolean aroundTheClock) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Finding nearest toilet for user {} at ({}, {})", userId, latitude, longitude);
 
@@ -49,7 +50,6 @@ public class RoutePlanningController {
     @GetMapping("/suggestions")
     @Operation(summary = "Получить предложения для маршрута")
     public ResponseEntity<List<PoiResponse>> getRouteSuggestions(
-            @RequestHeader("X-User-Id") Long userId,
             @Parameter(description = "ID города")
             @RequestParam Long cityId,
             @Parameter(description = "Тип объектов", example = "museum")
@@ -58,6 +58,7 @@ public class RoutePlanningController {
             @RequestParam(defaultValue = "10") int limit,
             @Parameter(description = "Минимальный рейтинг", example = "4.0")
             @RequestParam(defaultValue = "4.0") double minRating) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Getting route suggestions for user {} in city {}", userId, cityId);
 
@@ -70,7 +71,6 @@ public class RoutePlanningController {
     @PostMapping("/generate/{cityId}")
     @Operation(summary = "Сгенерировать маршрут автоматически")
     public ResponseEntity<Object> generateRoute(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long cityId,
             @Parameter(description = "Количество дней", example = "3")
             @RequestParam(defaultValue = "3") int days,
@@ -80,6 +80,7 @@ public class RoutePlanningController {
             @RequestParam(defaultValue = "2") int budgetLevel,
             @Parameter(description = "Режим передвижения", example = "WALK")
             @RequestParam(defaultValue = "WALK") String transportMode) {
+        Long userId = SecurityUtils.requireUserId();
 
         log.info("Generating route for user {} in city {} for {} days", userId, cityId, days);
 
