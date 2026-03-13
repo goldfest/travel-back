@@ -93,7 +93,7 @@ services:
       redis-core:
         condition: service_started
     ports:
-      - "8087:8082"
+      - "8087:8087"
     environment:
       SPRING_PROFILES_ACTIVE: docker
 

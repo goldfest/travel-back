@@ -3,6 +3,7 @@ package com.travelapp.personalization.controller;
 import com.travelapp.personalization.model.dto.request.CollectionPoiRequest;
 import com.travelapp.personalization.model.dto.request.CollectionRequest;
 import com.travelapp.personalization.model.dto.response.CollectionResponse;
+import com.travelapp.personalization.security.SecurityUtils;
 import com.travelapp.personalization.service.CollectionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -18,7 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/personalization/v1/collections")
+@RequestMapping("/v1/collections")
 @RequiredArgsConstructor
 @Tag(name = "Collection Management", description = "APIs for managing user collections")
 public class CollectionController {
@@ -28,8 +29,8 @@ public class CollectionController {
     @PostMapping
     @Operation(summary = "Create a new collection")
     public ResponseEntity<CollectionResponse> createCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody CollectionRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         CollectionResponse response = collectionService.createCollection(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -38,9 +39,9 @@ public class CollectionController {
     @PutMapping("/{collectionId}")
     @Operation(summary = "Update collection")
     public ResponseEntity<CollectionResponse> updateCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId,
             @Valid @RequestBody CollectionRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         CollectionResponse response = collectionService.updateCollection(userId, collectionId, request);
         return ResponseEntity.ok(response);
@@ -49,8 +50,8 @@ public class CollectionController {
     @DeleteMapping("/{collectionId}")
     @Operation(summary = "Delete collection")
     public ResponseEntity<Void> deleteCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId) {
+        Long userId = SecurityUtils.requireUserId();
 
         collectionService.deleteCollection(userId, collectionId);
         return ResponseEntity.noContent().build();
@@ -59,8 +60,8 @@ public class CollectionController {
     @GetMapping("/{collectionId}")
     @Operation(summary = "Get collection by ID")
     public ResponseEntity<CollectionResponse> getCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId) {
+        Long userId = SecurityUtils.requireUserId();
 
         CollectionResponse response = collectionService.getCollection(userId, collectionId);
         return ResponseEntity.ok(response);
@@ -69,8 +70,8 @@ public class CollectionController {
     @GetMapping
     @Operation(summary = "Get user collections")
     public ResponseEntity<Page<CollectionResponse>> getUserCollections(
-            @RequestHeader("X-User-Id") Long userId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
 
         Page<CollectionResponse> collections = collectionService.getUserCollections(userId, pageable);
         return ResponseEntity.ok(collections);
@@ -79,8 +80,8 @@ public class CollectionController {
     @GetMapping("/search")
     @Operation(summary = "Search collections by name")
     public ResponseEntity<List<CollectionResponse>> searchCollections(
-            @RequestHeader("X-User-Id") Long userId,
             @RequestParam String query) {
+        Long userId = SecurityUtils.requireUserId();
 
         List<CollectionResponse> collections = collectionService.searchCollections(userId, query);
         return ResponseEntity.ok(collections);
@@ -89,9 +90,9 @@ public class CollectionController {
     @PostMapping("/{collectionId}/pois")
     @Operation(summary = "Add POI to collection")
     public ResponseEntity<Void> addPoiToCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId,
             @Valid @RequestBody CollectionPoiRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         collectionService.addPoiToCollection(userId, collectionId, request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
@@ -100,9 +101,9 @@ public class CollectionController {
     @DeleteMapping("/{collectionId}/pois/{poiId}")
     @Operation(summary = "Remove POI from collection")
     public ResponseEntity<Void> removePoiFromCollection(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId,
             @PathVariable Long poiId) {
+        Long userId = SecurityUtils.requireUserId();
 
         collectionService.removePoiFromCollection(userId, collectionId, poiId);
         return ResponseEntity.noContent().build();
@@ -110,9 +111,9 @@ public class CollectionController {
 
     @GetMapping("/{collectionId}/pois")
     public ResponseEntity<Page<Long>> getCollectionPois(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
 
         Page<Long> poiIds = collectionService.getCollectionPois(userId, collectionId, pageable);
         return ResponseEntity.ok(poiIds);
@@ -120,8 +121,8 @@ public class CollectionController {
 
     @GetMapping("/{collectionId}/pois/count")
     public ResponseEntity<Long> getCollectionPoiCount(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long collectionId) {
+        Long userId = SecurityUtils.requireUserId();
 
         Long count = collectionService.getCollectionPoiCount(userId, collectionId);
         return ResponseEntity.ok(count);

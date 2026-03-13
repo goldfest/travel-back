@@ -2,6 +2,7 @@ package com.travelapp.personalization.controller;
 
 import com.travelapp.personalization.model.dto.request.SearchHistoryRequest;
 import com.travelapp.personalization.model.dto.response.SearchHistoryResponse;
+import com.travelapp.personalization.security.SecurityUtils;
 import com.travelapp.personalization.service.SearchHistoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,7 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/personalization/v1/search-history")
+@RequestMapping("/v1/search-history")
 @RequiredArgsConstructor
 @Tag(name = "Search History Management", description = "APIs for managing search history")
 public class SearchHistoryController {
@@ -26,8 +27,8 @@ public class SearchHistoryController {
     @PostMapping
     @Operation(summary = "Record a search")
     public ResponseEntity<Void> recordSearch(
-            @RequestHeader("X-User-Id") Long userId,
             @RequestBody SearchHistoryRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         searchHistoryService.recordSearch(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
@@ -36,8 +37,8 @@ public class SearchHistoryController {
     @GetMapping
     @Operation(summary = "Get user search history")
     public ResponseEntity<Page<SearchHistoryResponse>> getUserSearchHistory(
-            @RequestHeader("X-User-Id") Long userId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
 
         Page<SearchHistoryResponse> history = searchHistoryService.getUserSearchHistory(userId, pageable);
         return ResponseEntity.ok(history);
@@ -46,9 +47,9 @@ public class SearchHistoryController {
     @GetMapping("/city/{cityId}")
     @Operation(summary = "Get user search history for specific city")
     public ResponseEntity<Page<SearchHistoryResponse>> getUserCitySearchHistory(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long cityId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
 
         Page<SearchHistoryResponse> history = searchHistoryService.getUserCitySearchHistory(
                 userId, cityId, pageable);
@@ -58,8 +59,8 @@ public class SearchHistoryController {
     @GetMapping("/recent-queries")
     @Operation(summary = "Get recent search queries")
     public ResponseEntity<List<String>> getRecentQueries(
-            @RequestHeader("X-User-Id") Long userId,
             @RequestParam(defaultValue = "10") int limit) {
+        Long userId = SecurityUtils.requireUserId();
 
         List<String> queries = searchHistoryService.getRecentQueries(userId, limit);
         return ResponseEntity.ok(queries);
@@ -67,8 +68,8 @@ public class SearchHistoryController {
 
     @DeleteMapping
     @Operation(summary = "Clear user search history")
-    public ResponseEntity<Void> clearUserHistory(
-            @RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Void> clearUserHistory() {
+        Long userId = SecurityUtils.requireUserId();
 
         searchHistoryService.clearUserHistory(userId);
         return ResponseEntity.noContent().build();

@@ -2,6 +2,7 @@ package com.travelapp.personalization.controller;
 
 import com.travelapp.personalization.model.dto.request.PresetFilterRequest;
 import com.travelapp.personalization.model.dto.response.PresetFilterResponse;
+import com.travelapp.personalization.security.SecurityUtils;
 import com.travelapp.personalization.service.PresetFilterService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,7 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/personalization/v1/preset-filters")
+@RequestMapping("/v1/preset-filters")
 @RequiredArgsConstructor
 @Tag(name = "Preset Filter Management", description = "APIs for managing preset filters")
 public class PresetFilterController {
@@ -27,8 +28,8 @@ public class PresetFilterController {
     @PostMapping
     @Operation(summary = "Create a new preset filter")
     public ResponseEntity<PresetFilterResponse> createPresetFilter(
-            @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody PresetFilterRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         PresetFilterResponse response = presetFilterService.createPresetFilter(userId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -37,9 +38,9 @@ public class PresetFilterController {
     @PutMapping("/{filterId}")
     @Operation(summary = "Update preset filter")
     public ResponseEntity<PresetFilterResponse> updatePresetFilter(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long filterId,
             @Valid @RequestBody PresetFilterRequest request) {
+        Long userId = SecurityUtils.requireUserId();
 
         PresetFilterResponse response = presetFilterService.updatePresetFilter(userId, filterId, request);
         return ResponseEntity.ok(response);
@@ -48,8 +49,8 @@ public class PresetFilterController {
     @DeleteMapping("/{filterId}")
     @Operation(summary = "Delete preset filter")
     public ResponseEntity<Void> deletePresetFilter(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long filterId) {
+        Long userId = SecurityUtils.requireUserId();
 
         presetFilterService.deletePresetFilter(userId, filterId);
         return ResponseEntity.noContent().build();
@@ -58,8 +59,8 @@ public class PresetFilterController {
     @GetMapping("/{filterId}")
     @Operation(summary = "Get preset filter by ID")
     public ResponseEntity<PresetFilterResponse> getPresetFilter(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long filterId) {
+        Long userId = SecurityUtils.requireUserId();
 
         PresetFilterResponse response = presetFilterService.getPresetFilter(userId, filterId);
         return ResponseEntity.ok(response);
@@ -68,8 +69,8 @@ public class PresetFilterController {
     @GetMapping
     @Operation(summary = "Get user preset filters")
     public ResponseEntity<Page<PresetFilterResponse>> getUserPresetFilters(
-            @RequestHeader("X-User-Id") Long userId,
             @Parameter(description = "Pagination parameters") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
 
         Page<PresetFilterResponse> filters = presetFilterService.getUserPresetFilters(userId, pageable);
         return ResponseEntity.ok(filters);
@@ -78,9 +79,9 @@ public class PresetFilterController {
     @GetMapping("/context")
     @Operation(summary = "Get preset filters for specific context")
     public ResponseEntity<List<PresetFilterResponse>> getPresetFiltersForContext(
-            @RequestHeader("X-User-Id") Long userId,
             @RequestParam Long cityId,
             @RequestParam Long poiTypeId) {
+        Long userId = SecurityUtils.requireUserId();
 
         List<PresetFilterResponse> filters = presetFilterService.getPresetFiltersForContext(
                 userId, cityId, poiTypeId);
@@ -90,8 +91,8 @@ public class PresetFilterController {
     @GetMapping("/name/{name}")
     @Operation(summary = "Get preset filter by name")
     public ResponseEntity<PresetFilterResponse> getPresetFilterByName(
-            @RequestHeader("X-User-Id") Long userId,
             @PathVariable String name) {
+        Long userId = SecurityUtils.requireUserId();
 
         PresetFilterResponse response = presetFilterService.getPresetFilterByName(userId, name);
         return ResponseEntity.ok(response);

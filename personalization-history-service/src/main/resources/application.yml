@@ -1,6 +1,14 @@
+server:
+  port: ${SERVER_PORT:8085}
+  servlet:
+    context-path: /api/personalization
+
 spring:
   application:
     name: personalization-history-service
+
+  profiles:
+    active: dev
 
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/personalization_db}
@@ -11,8 +19,11 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: validate
     properties:
@@ -20,8 +31,10 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           batch_size: 20
+          time_zone: UTC
         order_inserts: true
         order_updates: true
+        format_sql: true
     show-sql: ${SHOW_SQL:false}
 
   data:
@@ -31,10 +44,21 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2000ms
 
-server:
-  port: ${SERVER_PORT:8085}
-  servlet:
-    context-path: /api
+  cache:
+    type: ${SPRING_CACHE_TYPE:simple}
+
+services:
+  auth:
+    url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
+
+  poi:
+    base-url: ${POI_SERVICE_URL:http://localhost:8081/api/poi}
+
+  city:
+    base-url: ${CITY_SERVICE_URL:http://localhost:8082/api/cities}
 
 springdoc:
   api-docs:
@@ -63,14 +87,12 @@ logging:
 app:
   cache:
     favorites:
-      ttl: 1800 # 30 минут
+      ttl: 1800
     collections:
-      ttl: 3600 # 1 час
+      ttl: 3600
     search-history:
-      ttl: 900 # 15 минут
-    history:
-      days-to-keep: 30
-  security:
-    user-header: X-User-Id
+      ttl: 900
+  history:
+    days-to-keep: 30
   cors:
     allowed-origins: "*"
