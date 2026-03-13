@@ -1,0 +1,64 @@
+spring:
+  cache:
+    type: redis
+    redis:
+      time-to-live: 60s
+      cache-null-values: false
+
+  datasource:
+    url: jdbc:postgresql://notification-db:5432/notification_db
+    username: postgres
+    password: 5558
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+      timeout: 2000ms
+
+  rabbitmq:
+    host: rabbitmq
+    port: 5672
+    username: guest
+    password: guest
+    connection-timeout: 5000
+
+services:
+  auth:
+    url: http://auth-service:8084/api
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
+
+  poi:
+    base-url: http://poi-service:8081/api/poi
+
+  route:
+    base-url: http://route-service:8082/api/routes
+
+logging:
+  level:
+    com.travelapp.notification: INFO
+    org.springframework.amqp: WARN
+    org.springframework.mail: WARN
+    org.hibernate.SQL: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

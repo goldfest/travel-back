@@ -1,6 +1,14 @@
+server:
+  port: ${SERVER_PORT:8086}
+  servlet:
+    context-path: /api/notifications
+
 spring:
   application:
     name: notification-service
+
+  profiles:
+    active: dev
 
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/notification_db}
@@ -11,16 +19,22 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
 
   jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
           batch_size: 20
+          time_zone: UTC
         order_inserts: true
         order_updates: true
+        format_sql: true
     show-sql: ${SHOW_SQL:false}
 
   flyway:
@@ -59,10 +73,18 @@ spring:
             enable: true
         debug: false
 
-server:
-  port: ${SERVER_PORT:8086}
-  servlet:
-    context-path: /api
+services:
+  auth:
+    url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
+
+  poi:
+    base-url: ${POI_SERVICE_URL:http://localhost:8081/api/poi}
+
+  route:
+    base-url: ${ROUTE_SERVICE_URL:http://localhost:8082/api/routes}
 
 logging:
   level:
