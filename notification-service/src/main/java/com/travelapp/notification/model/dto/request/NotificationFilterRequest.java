@@ -21,9 +21,6 @@ public class NotificationFilterRequest {
     @Schema(description = "Статус прочтения", example = "false")
     private Boolean isRead;
 
-    @Schema(description = "ID пользователя", example = "1")
-    private Long userId;
-
     @Schema(description = "Номер страницы", example = "0", defaultValue = "0")
     private Integer page = 0;
 

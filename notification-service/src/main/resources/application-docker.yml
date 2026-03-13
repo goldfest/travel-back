@@ -4,6 +4,17 @@ spring:
     redis:
       time-to-live: 60s
       cache-null-values: false
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
   datasource:
     url: jdbc:postgresql://notification-db:5432/notification_db

@@ -1,6 +1,8 @@
 // notification-service/src/main/java/com/travelapp/notification/service/impl/EmailServiceImpl.java
 package com.travelapp.notification.service.impl;
 
+import com.travelapp.notification.client.AuthClient;
+import com.travelapp.notification.model.dto.InternalUserResponse;
 import com.travelapp.notification.model.dto.response.NotificationResponse;
 import com.travelapp.notification.service.EmailService;
 import jakarta.mail.MessagingException;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Service;
 public class EmailServiceImpl implements EmailService {
 
     private final JavaMailSender mailSender;
+    private final AuthClient authClient;
 
     @Value("${notification.email.from:noreply@travelapp.com}")
     private String fromEmail;
@@ -39,7 +42,11 @@ public class EmailServiceImpl implements EmailService {
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
 
             helper.setFrom(fromEmail);
-            helper.setTo("user" + notification.getUserId() + "@example.com"); // В реальном приложении нужно получать email из профиля
+            InternalUserResponse user = authClient.getUserInfo(notification.getUserId());
+            if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+                throw new RuntimeException("Recipient email not found for user " + notification.getUserId());
+            }
+            helper.setTo(user.getEmail());
             helper.setSubject("TravelApp: " + notification.getTitle());
 
             String emailContent = buildEmailContent(notification);

@@ -1,6 +1,8 @@
 package com.travelapp.notification.service.impl;
 
+import com.travelapp.notification.client.AuthClient;
 import com.travelapp.notification.exception.NotificationNotFoundException;
+import com.travelapp.notification.exception.ResourceNotFoundException;
 import com.travelapp.notification.exception.UnauthorizedAccessException;
 import com.travelapp.notification.mapper.NotificationMapper;
 import com.travelapp.notification.model.dto.request.CreateNotificationRequest;
@@ -13,6 +15,8 @@ import com.travelapp.notification.service.EmailService;
 import com.travelapp.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -35,25 +39,36 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRepository notificationRepository;
     private final NotificationMapper notificationMapper;
     private final EmailService emailService;
+    private final AuthClient authClient;
 
     @Override
+    @Caching(evict = {
+            @CacheEvict(value = "notifications", key = "#request.userId"),
+            @CacheEvict(value = "notificationStats", key = "#request.userId")
+    })
     public NotificationResponse createNotification(CreateNotificationRequest request) {
-        log.info("Creating notification for user {} with type {}", request.getUserId(), request.getType());
+        log.info("Creating notification for user {}", request.getUserId());
 
-        Notification notification = notificationMapper.toEntity(request);
+        validateUserExists(request.getUserId());
 
-        // scheduledAt == null -> отправка сразу, но sentAt ставим ТОЛЬКО после успеха отправки
+        Notification notification = Notification.builder()
+                .userId(request.getUserId())
+                .type(request.getType())
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .scheduledAt(request.getScheduledAt())
+                .routeId(request.getRouteId())
+                .poiId(request.getPoiId())
+                .isRead(false)
+                .build();
+
         Notification saved = notificationRepository.save(notification);
 
-        if (saved.getScheduledAt() == null) {
-            sendNotificationImmediately(NotificationResponse.fromEntity(saved));
-            // если отправка успешна -> ставим sentAt и сохраняем
-            saved.markAsSent();
-            saved = notificationRepository.save(saved);
+        if (shouldSendEmail(saved)) {
+            sendEmailAsync(saved);
         }
 
-        log.info("Notification created successfully with id: {}", saved.getId());
-        return notificationMapper.toResponse(saved);
+        return mapToResponse(saved);
     }
 
     @Override
@@ -200,9 +215,14 @@ public class NotificationServiceImpl implements NotificationService {
     public void sendBatchNotifications(List<CreateNotificationRequest> requests) {
         log.info("Sending batch of {} notifications", requests.size());
 
-        // ✅ для batch: тоже ставим sentAt после успеха отправки
+        for (CreateNotificationRequest request : requests) {
+            validateUserExists(request.getUserId());
+        }
+
         List<Notification> saved = notificationRepository.saveAll(
-                requests.stream().map(notificationMapper::toEntity).collect(Collectors.toList())
+                requests.stream()
+                        .map(notificationMapper::toEntity)
+                        .collect(Collectors.toList())
         );
 
         for (Notification n : saved) {
@@ -215,5 +235,31 @@ public class NotificationServiceImpl implements NotificationService {
         }
 
         notificationRepository.saveAll(saved);
+    }
+
+    private void validateUserExists(Long userId) {
+        if (!Boolean.TRUE.equals(authClient.exists(userId))) {
+            throw new ResourceNotFoundException("User not found with id: " + userId);
+        }
+    }
+
+    private void sendEmailAsync(Notification notification) {
+        try {
+            emailService.sendNotificationEmail(NotificationResponse.fromEntity(notification));
+        } catch (Exception e) {
+            log.warn("Failed to send email for notification {}: {}", notification.getId(), e.getMessage());
+        }
+    }
+    private boolean shouldSendEmail(Notification notification) {
+        if (notification.getType() == null) {
+            return false;
+        }
+
+        return Notification.Type.SYSTEM.getValue().equalsIgnoreCase(notification.getType())
+                || Notification.Type.ROUTE_REMINDER.getValue().equalsIgnoreCase(notification.getType())
+                || Notification.Type.POI_UPDATE.getValue().equalsIgnoreCase(notification.getType());
+    }
+    private NotificationResponse mapToResponse(Notification notification) {
+        return notificationMapper.toResponse(notification);
     }
 }

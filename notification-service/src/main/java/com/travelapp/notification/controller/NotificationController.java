@@ -4,6 +4,7 @@ import com.travelapp.notification.model.dto.request.CreateNotificationRequest;
 import com.travelapp.notification.model.dto.request.NotificationFilterRequest;
 import com.travelapp.notification.model.dto.response.NotificationResponse;
 import com.travelapp.notification.model.dto.response.NotificationStatsResponse;
+import com.travelapp.notification.security.SecurityUtils;
 import com.travelapp.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -21,14 +22,13 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
 @Tag(name = "Уведомления", description = "API для управления уведомлениями пользователей")
 public class NotificationController {
 
     private final NotificationService notificationService;
 
-    @PostMapping
+    @PostMapping("/internal/notifications")
     @Operation(summary = "Создать новое уведомление", description = "Создает новое уведомление для пользователя")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Уведомление успешно создано"),
@@ -41,7 +41,7 @@ public class NotificationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/v1/notifications/{id}")
     @Operation(summary = "Получить уведомление по ID", description = "Возвращает уведомление по указанному ID")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Уведомление найдено"),
@@ -49,34 +49,34 @@ public class NotificationController {
             @ApiResponse(responseCode = "403", description = "Нет доступа к уведомлению")
     })
     public ResponseEntity<NotificationResponse> getNotificationById(
-            @PathVariable Long id,
-            @RequestHeader("X-User-Id") Long userId) {
+            @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(notificationService.getNotificationById(id, userId));
     }
 
-    @GetMapping
+    @GetMapping("/v1/notifications")
     @Operation(summary = "Получить уведомления пользователя", description = "Возвращает список уведомлений пользователя с пагинацией")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Уведомления найдены")
     })
     public ResponseEntity<Page<NotificationResponse>> getMyNotifications(
-            @RequestHeader("X-User-Id") Long userId,
             @PageableDefault(size = 20, sort = "createdAt") Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(notificationService.getUserNotifications(userId, pageable));
     }
 
-    @GetMapping("/filter")
+    @GetMapping("/v1/notifications/filter")
     @Operation(summary = "Получить уведомления пользователя с фильтрацией", description = "Возвращает отфильтрованный список уведомлений")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Уведомления найдены")
     })
     public ResponseEntity<Page<NotificationResponse>> getMyNotificationsWithFilter(
-            @RequestHeader("X-User-Id") Long userId,
             @ModelAttribute NotificationFilterRequest filter) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(notificationService.getUserNotificationsWithFilter(userId, filter));
     }
 
-    @PatchMapping("/{id}/read")
+    @PatchMapping("/v1/notifications/{id}/read")
     @Operation(summary = "Отметить уведомление как прочитанное", description = "Отмечает уведомление как прочитанное")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Уведомление отмечено как прочитанное"),
@@ -84,48 +84,50 @@ public class NotificationController {
             @ApiResponse(responseCode = "403", description = "Нет доступа к уведомлению")
     })
     public ResponseEntity<NotificationResponse> markAsRead(
-            @PathVariable Long id,
-            @RequestHeader("X-User-Id") Long userId) {
+            @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(notificationService.markAsRead(id, userId));
     }
 
-    @PatchMapping("/read-all")
+    @PatchMapping("/v1/notifications/read-all")
     @Operation(summary = "Отметить все уведомления как прочитанные", description = "Отмечает все уведомления пользователя как прочитанные")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Все уведомления отмечены как прочитанные")
     })
-    public ResponseEntity<Void> markAllAsRead(@RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Void> markAllAsRead() {
+        Long userId = SecurityUtils.requireUserId();
         notificationService.markAllAsRead(userId);
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/stats")
+    @GetMapping("/v1/notifications/stats")
     @Operation(summary = "Получить статистику уведомлений", description = "Возвращает статистику уведомлений пользователя")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Статистика получена")
     })
-    public ResponseEntity<NotificationStatsResponse> getMyNotificationStats(
-            @RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<NotificationStatsResponse> getMyNotificationStats() {
+        Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(notificationService.getUserNotificationStats(userId));
     }
 
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/v1/notifications/{id}")
     @Operation(summary = "Удалить уведомление", description = "Удаляет уведомление по ID")
     public ResponseEntity<Void> deleteNotification(
-            @PathVariable Long id,
-            @RequestHeader("X-User-Id") Long userId) {
+            @PathVariable Long id) {
+        Long userId = SecurityUtils.requireUserId();
         notificationService.deleteNotification(id, userId);
         return ResponseEntity.noContent().build();
     }
 
-    @DeleteMapping
+    @DeleteMapping("/v1/notifications")
     @Operation(summary = "Удалить все уведомления пользователя", description = "Удаляет все уведомления текущего пользователя")
-    public ResponseEntity<Void> deleteAllMyNotifications(@RequestHeader("X-User-Id") Long userId) {
+    public ResponseEntity<Void> deleteAllMyNotifications() {
+        Long userId = SecurityUtils.requireUserId();
         notificationService.deleteAllUserNotifications(userId);
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/batch")
+    @PostMapping("/internal/notifications/batch")
     @Operation(summary = "Создать несколько уведомлений", description = "Создает несколько уведомлений одновременно")
     public ResponseEntity<Void> createBatchNotifications(
             @Valid @RequestBody List<CreateNotificationRequest> requests) {
@@ -133,7 +135,7 @@ public class NotificationController {
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
-    @PostMapping("/admin/scheduled")
+    @PostMapping("/internal/notifications/admin/scheduled")
     @Operation(summary = "Отправить запланированные уведомления", description = "Отправляет все запланированные уведомления, время которых наступило")
     public ResponseEntity<List<NotificationResponse>> sendScheduledNotifications() {
         return ResponseEntity.ok(notificationService.sendScheduledNotifications());
