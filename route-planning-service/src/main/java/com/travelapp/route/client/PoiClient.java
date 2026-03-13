@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.util.List;
 import java.util.Optional;
 
-@FeignClient(name = "poi-service", url = "${app.poi-service.url}")
+@FeignClient(name = "poi-service", url = "${services.poi.base-url}")
 public interface PoiClient {
 
     @GetMapping("/{id}")
