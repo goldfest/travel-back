@@ -1,5 +1,7 @@
 package com.travelapp.personalization.service.impl;
 
+import com.travelapp.personalization.client.CityClient;
+import com.travelapp.personalization.exception.ResourceNotFoundException;
 import com.travelapp.personalization.model.dto.request.SearchHistoryRequest;
 import com.travelapp.personalization.model.dto.response.SearchHistoryResponse;
 import com.travelapp.personalization.model.entity.SearchHistory;
@@ -26,11 +28,14 @@ import java.util.List;
 public class SearchHistoryServiceImpl implements SearchHistoryService {
 
     private final SearchHistoryRepository searchHistoryRepository;
+    private final CityClient cityClient;
 
     @Override
     @CacheEvict(value = {"searchHistory", "recentQueries"}, key = "#userId")
     public void recordSearch(Long userId, SearchHistoryRequest request) {
         log.info("Recording search for user {}: {}", userId, request.getQueryText());
+
+        validateCityExists(request.getCityId());
 
         SearchHistory searchHistory = SearchHistory.builder()
                 .userId(userId)
@@ -113,5 +118,17 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
                 .presetFilterId(searchHistory.getPresetFilterId())
                 .searchedAt(searchHistory.getSearchedAt())
                 .build();
+    }
+
+    private void validateCityExists(Long cityId) {
+        if (cityId == null) {
+            return;
+        }
+
+        try {
+            cityClient.getCityById(cityId);
+        } catch (Exception e) {
+            throw new ResourceNotFoundException("City not found with id: " + cityId);
+        }
     }
 }

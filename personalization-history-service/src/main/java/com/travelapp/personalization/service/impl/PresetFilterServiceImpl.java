@@ -1,5 +1,6 @@
 package com.travelapp.personalization.service.impl;
 
+import com.travelapp.personalization.client.CityClient;
 import com.travelapp.personalization.exception.ResourceNotFoundException;
 import com.travelapp.personalization.model.dto.request.PresetFilterRequest;
 import com.travelapp.personalization.model.dto.response.PresetFilterResponse;
@@ -25,13 +26,15 @@ import java.util.List;
 public class PresetFilterServiceImpl implements PresetFilterService {
 
     private final PresetFilterRepository presetFilterRepository;
+    private final CityClient cityClient;
 
     @Override
     @CacheEvict(value = "presetFilters", key = "#userId")
     public PresetFilterResponse createPresetFilter(Long userId, PresetFilterRequest request) {
         log.info("Creating preset filter '{}' for user {}", request.getName(), userId);
 
-        // Проверяем уникальность названия для пользователя
+        validateCityExists(request.getCityId());
+
         if (presetFilterRepository.existsByUserIdAndName(userId, request.getName())) {
             throw new IllegalStateException("Preset filter with this name already exists");
         }
@@ -57,7 +60,8 @@ public class PresetFilterServiceImpl implements PresetFilterService {
 
         PresetFilter presetFilter = getPresetFilterEntity(userId, filterId);
 
-        // Проверяем уникальность нового названия (если оно изменилось)
+        validateCityExists(request.getCityId());
+
         if (!presetFilter.getName().equals(request.getName()) &&
                 presetFilterRepository.existsByUserIdAndName(userId, request.getName())) {
             throw new IllegalStateException("Preset filter with this name already exists");
@@ -144,5 +148,17 @@ public class PresetFilterServiceImpl implements PresetFilterService {
                 .createdAt(presetFilter.getCreatedAt())
                 .updatedAt(presetFilter.getUpdatedAt())
                 .build();
+    }
+
+    private void validateCityExists(Long cityId) {
+        if (cityId == null) {
+            return;
+        }
+
+        try {
+            cityClient.getCityById(cityId);
+        } catch (Exception e) {
+            throw new ResourceNotFoundException("City not found with id: " + cityId);
+        }
     }
 }

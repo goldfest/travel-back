@@ -1,5 +1,6 @@
 package com.travelapp.personalization.service.impl;
 
+import com.travelapp.personalization.client.PoiClient;
 import com.travelapp.personalization.exception.ResourceNotFoundException;
 import com.travelapp.personalization.model.dto.request.CollectionPoiRequest;
 import com.travelapp.personalization.model.dto.request.CollectionRequest;
@@ -30,6 +31,7 @@ public class CollectionServiceImpl implements CollectionService {
 
     private final CollectionRepository collectionRepository;
     private final CollectionPoiRepository collectionPoiRepository;
+    private final PoiClient poiClient;
 
     @Override
     @Caching(evict = {
@@ -157,15 +159,14 @@ public class CollectionServiceImpl implements CollectionService {
     public void addPoiToCollection(Long userId, Long collectionId, CollectionPoiRequest request) {
         log.info("Adding POI {} to collection {} for user {}", request.getPoiId(), collectionId, userId);
 
-        // Проверяем существование коллекции и права доступа
         getCollectionEntity(userId, collectionId);
 
-        // Проверяем, не добавлен ли уже POI в коллекцию
+        validatePoiExists(request.getPoiId());
+
         if (collectionPoiRepository.existsByCollectionIdAndPoiId(collectionId, request.getPoiId())) {
             throw new IllegalStateException("POI already in collection");
         }
 
-        // Определяем порядковый номер
         Integer orderIndex = request.getOrderIndex();
         if (orderIndex == null) {
             long currentCount = collectionPoiRepository.countByCollectionId(collectionId);
@@ -244,5 +245,13 @@ public class CollectionServiceImpl implements CollectionService {
                 .createdAt(collection.getCreatedAt())
                 .updatedAt(collection.getUpdatedAt())
                 .build();
+    }
+
+    private void validatePoiExists(Long poiId) {
+        try {
+            poiClient.getPoiById(poiId);
+        } catch (Exception e) {
+            throw new ResourceNotFoundException("POI not found with id: " + poiId);
+        }
     }
 }

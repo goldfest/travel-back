@@ -1,5 +1,6 @@
 package com.travelapp.personalization.service.impl;
 
+import com.travelapp.personalization.client.PoiClient;
 import com.travelapp.personalization.exception.ResourceNotFoundException;
 import com.travelapp.personalization.model.dto.request.FavoriteRequest;
 import com.travelapp.personalization.model.dto.response.FavoriteResponse;
@@ -24,6 +25,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Transactional
 public class FavoriteServiceImpl implements FavoriteService {
+    private final PoiClient poiClient;
 
     private final FavoriteRepository favoriteRepository;
 
@@ -35,7 +37,8 @@ public class FavoriteServiceImpl implements FavoriteService {
     public FavoriteResponse addToFavorites(Long userId, FavoriteRequest request) {
         log.info("Adding POI {} to favorites for user {}", request.getPoiId(), userId);
 
-        // Проверяем, не добавлен ли уже в избранное
+        validatePoiExists(request.getPoiId());
+
         if (favoriteRepository.existsByUserIdAndPoiId(userId, request.getPoiId())) {
             throw new IllegalStateException("POI already in favorites");
         }
@@ -109,5 +112,13 @@ public class FavoriteServiceImpl implements FavoriteService {
                 .poiId(favorite.getPoiId())
                 .createdAt(favorite.getCreatedAt())
                 .build();
+    }
+
+    private void validatePoiExists(Long poiId) {
+        try {
+            poiClient.getPoiById(poiId);
+        } catch (Exception e) {
+            throw new ResourceNotFoundException("POI not found with id: " + poiId);
+        }
     }
 }
