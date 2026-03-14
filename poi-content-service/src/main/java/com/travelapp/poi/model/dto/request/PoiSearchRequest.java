@@ -50,8 +50,8 @@ public class PoiSearchRequest {
     @JsonProperty("features")
     private List<String> requiredFeatures;
 
-    @Min(value = 1, message = "Page must be at least 1")
-    private Integer page = 1;
+    @Min(value = 0, message = "Page must be at least 1")
+    private Integer page = 0;
 
     @Min(value = 1, message = "Page size must be at least 1")
     @Max(value = 100, message = "Page size cannot exceed 100")

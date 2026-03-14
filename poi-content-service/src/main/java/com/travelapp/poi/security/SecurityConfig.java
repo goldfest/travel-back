@@ -54,7 +54,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.DELETE, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
 
-                        .requestMatchers(HttpMethod.GET, "/internal/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/internal/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/internal/**").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/internal/**").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/internal/**").authenticated()
