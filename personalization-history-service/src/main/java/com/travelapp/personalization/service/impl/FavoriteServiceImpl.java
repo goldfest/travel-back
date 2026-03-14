@@ -70,7 +70,6 @@ public class FavoriteServiceImpl implements FavoriteService {
     }
 
     @Override
-    @Cacheable(value = "favorites", key = "#userId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     @Transactional(readOnly = true)
     public Page<FavoriteResponse> getUserFavorites(Long userId, Pageable pageable) {
         log.info("Fetching favorites for user {}", userId);

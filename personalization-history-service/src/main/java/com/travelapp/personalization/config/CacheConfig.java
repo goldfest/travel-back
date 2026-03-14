@@ -1,5 +1,10 @@
 package com.travelapp.personalization.config;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -31,25 +36,40 @@ public class CacheConfig {
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
 
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        objectMapper.activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL,
+                JsonTypeInfo.As.PROPERTY
+        );
+
+        GenericJackson2JsonRedisSerializer serializer =
+                new GenericJackson2JsonRedisSerializer(objectMapper);
+
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .disableCachingNullValues()
-                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
+                .serializeKeysWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(
+                                new StringRedisSerializer()
+                        )
+                )
+                .serializeValuesWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(serializer)
+                );
 
         Map<String, RedisCacheConfiguration> configs = new HashMap<>();
 
-        // favorites
         configs.put("favorites", defaultConfig.entryTtl(Duration.ofSeconds(favoritesTtl)));
         configs.put("favoriteCheck", defaultConfig.entryTtl(Duration.ofSeconds(favoritesTtl)));
         configs.put("favoriteCount", defaultConfig.entryTtl(Duration.ofSeconds(favoritesTtl)));
 
-        // collections
         configs.put("collections", defaultConfig.entryTtl(Duration.ofSeconds(collectionsTtl)));
         configs.put("collection", defaultConfig.entryTtl(Duration.ofSeconds(collectionsTtl)));
         configs.put("collectionSearch", defaultConfig.entryTtl(Duration.ofSeconds(collectionsTtl)));
         configs.put("collectionPois", defaultConfig.entryTtl(Duration.ofSeconds(collectionsTtl)));
 
-        // search history
         configs.put("searchHistory", defaultConfig.entryTtl(Duration.ofSeconds(searchHistoryTtl)));
         configs.put("recentQueries", defaultConfig.entryTtl(Duration.ofSeconds(searchHistoryTtl)));
 

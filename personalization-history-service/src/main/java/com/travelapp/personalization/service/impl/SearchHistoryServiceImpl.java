@@ -60,7 +60,6 @@ public class SearchHistoryServiceImpl implements SearchHistoryService {
     }
 
     @Override
-    @Cacheable(value = "searchHistory", key = "#userId + '-city-' + #cityId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     @Transactional(readOnly = true)
     public Page<SearchHistoryResponse> getUserCitySearchHistory(Long userId, Long cityId, Pageable pageable) {
         log.info("Fetching search history for user {} in city {}", userId, cityId);

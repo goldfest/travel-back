@@ -1,5 +1,6 @@
 package com.travelapp.personalization.client;
 
+import com.travelapp.personalization.model.dto.external.CityDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -10,6 +11,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 )
 public interface CityClient {
 
-    @GetMapping("/{id}")
-    Object getCityById(@PathVariable("id") Long cityId);
+    @GetMapping("/v1/{id}")
+    CityDto getCityById(@PathVariable("id") Long cityId);
 }

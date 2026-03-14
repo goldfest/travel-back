@@ -113,28 +113,16 @@ public class CollectionServiceImpl implements CollectionService {
         log.info("Getting collection {} for user {}", collectionId, userId);
 
         Collection collection = getCollectionEntity(userId, collectionId);
-        CollectionResponse response = mapToResponse(collection);
-
-        // Добавляем количество POI в коллекции
-        long poiCount = collectionPoiRepository.countByCollectionId(collectionId);
-        response.setPoiCount((int) poiCount);
-
-        return response;
+        return mapToResponse(collection);
     }
 
     @Override
-    @Cacheable(value = "collections", key = "#userId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     @Transactional(readOnly = true)
     public Page<CollectionResponse> getUserCollections(Long userId, Pageable pageable) {
         log.info("Fetching collections for user {}", userId);
 
         return collectionRepository.findByUserId(userId, pageable)
-                .map(collection -> {
-                    CollectionResponse response = mapToResponse(collection);
-                    long poiCount = collectionPoiRepository.countByCollectionId(collection.getId());
-                    response.setPoiCount((int) poiCount);
-                    return response;
-                });
+                .map(this::mapToResponse);
     }
 
     @Override
@@ -145,12 +133,7 @@ public class CollectionServiceImpl implements CollectionService {
 
         return collectionRepository.findByUserIdAndNameContainingIgnoreCase(userId, searchTerm)
                 .stream()
-                .map(collection -> {
-                    CollectionResponse response = mapToResponse(collection);
-                    long poiCount = collectionPoiRepository.countByCollectionId(collection.getId());
-                    response.setPoiCount((int) poiCount);
-                    return response;
-                })
+                .map(this::mapToResponse)
                 .toList();
     }
 
@@ -211,7 +194,6 @@ public class CollectionServiceImpl implements CollectionService {
     }
 
     @Override
-    @Cacheable(value = "collectionPois", key = "#collectionId + '-' + #pageable.pageNumber + '-' + #pageable.pageSize")
     @Transactional(readOnly = true)
     public Page<Long> getCollectionPois(Long userId, Long collectionId, Pageable pageable) {
         log.debug("Fetching POIs for collection {}", collectionId);
@@ -236,12 +218,15 @@ public class CollectionServiceImpl implements CollectionService {
     }
 
     private CollectionResponse mapToResponse(Collection collection) {
+        long poiCount = collectionPoiRepository.countByCollectionId(collection.getId());
+
         return CollectionResponse.builder()
                 .id(collection.getId())
                 .name(collection.getName())
                 .description(collection.getDescription())
                 .coverUrl(collection.getCoverUrl())
                 .userId(collection.getUserId())
+                .poiCount((int) poiCount)
                 .createdAt(collection.getCreatedAt())
                 .updatedAt(collection.getUpdatedAt())
                 .build();
