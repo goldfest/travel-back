@@ -32,7 +32,8 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Override
     @Caching(evict = {
             @CacheEvict(value = "favorites", key = "#userId"),
-            @CacheEvict(value = "favoriteCount", key = "#userId")
+            @CacheEvict(value = "favoriteCount", key = "#userId"),
+            @CacheEvict(value = "favoriteCheck", key = "#userId + '-' + #request.poiId")
     })
     public FavoriteResponse addToFavorites(Long userId, FavoriteRequest request) {
         log.info("Adding POI {} to favorites for user {}", request.getPoiId(), userId);
@@ -57,7 +58,8 @@ public class FavoriteServiceImpl implements FavoriteService {
     @Override
     @Caching(evict = {
             @CacheEvict(value = "favorites", key = "#userId"),
-            @CacheEvict(value = "favoriteCount", key = "#userId")
+            @CacheEvict(value = "favoriteCount", key = "#userId"),
+            @CacheEvict(value = "favoriteCheck", key = "#userId + '-' + #poiId")
     })
     public void removeFromFavorites(Long userId, Long poiId) {
         log.info("Removing POI {} from favorites for user {}", poiId, userId);
