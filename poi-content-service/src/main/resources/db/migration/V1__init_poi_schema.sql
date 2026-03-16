@@ -34,9 +34,6 @@ CREATE TABLE IF NOT EXISTS poi (
 
     price_level     SMALLINT CHECK (price_level >= 0 AND price_level <= 4),
 
-    average_rating  NUMERIC(3,2) DEFAULT 0.00,
-    rating_count    INTEGER DEFAULT 0,
-
     is_verified     BOOLEAN DEFAULT FALSE,
     is_closed       BOOLEAN DEFAULT FALSE,
 
@@ -46,9 +43,8 @@ CREATE TABLE IF NOT EXISTS poi (
     created_by      BIGINT NOT NULL,
     city_id         BIGINT NOT NULL,
 
-    poi_type_id     BIGINT NOT NULL REFERENCES poi_type(id),
+    poi_type_id     BIGINT NOT NULL REFERENCES poi_type(id)
 
-    CONSTRAINT avg_rating_range CHECK (average_rating >= 0 AND average_rating <= 5)
 );
 
 -- -------------------------
@@ -152,9 +148,7 @@ CREATE TABLE IF NOT EXISTS data_import_task (
 CREATE INDEX IF NOT EXISTS idx_poi_city_id         ON poi(city_id);
 CREATE INDEX IF NOT EXISTS idx_poi_type_id         ON poi(poi_type_id);
 CREATE INDEX IF NOT EXISTS idx_poi_location        ON poi(latitude, longitude);
-CREATE INDEX IF NOT EXISTS idx_poi_rating          ON poi(average_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_poi_verified        ON poi(is_verified);
-CREATE INDEX IF NOT EXISTS idx_poi_slug            ON poi(slug);
 CREATE INDEX IF NOT EXISTS idx_poi_created_at      ON poi(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_poi_updated_at      ON poi(updated_at DESC);
 

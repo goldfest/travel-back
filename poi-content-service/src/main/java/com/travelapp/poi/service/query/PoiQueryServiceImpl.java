@@ -109,7 +109,6 @@ public class PoiQueryServiceImpl implements PoiQueryService {
                 .and(isVerified(request.getVerifiedOnly()))
                 .and(isNotClosed(request.getExcludeClosed()))
                 .and(hasTypeIds(request.getPoiTypeIds()))
-                .and(hasMinRating(request.getMinRating()))
                 .and(hasPriceRange(request.getMinPrice(), request.getMaxPrice()))
                 .and(hasSearchQuery(request.getSearchQuery()));
         // features сейчас заглушка у тебя — оставил как есть, лучше доделать через join/subquery
@@ -129,10 +128,6 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
     private Specification<Poi> hasTypeIds(List<Long> typeIds) {
         return (root, query, cb) -> typeIds == null || typeIds.isEmpty() ? null : root.get("poiType").get("id").in(typeIds);
-    }
-
-    private Specification<Poi> hasMinRating(BigDecimal minRating) {
-        return (root, query, cb) -> minRating == null ? null : cb.greaterThanOrEqualTo(root.get("averageRating"), minRating);
     }
 
     private Specification<Poi> hasPriceRange(Short minPrice, Short maxPrice) {
@@ -162,7 +157,6 @@ public class PoiQueryServiceImpl implements PoiQueryService {
         String s = sortBy.trim().toLowerCase();
         return switch (s) {
             case "name" -> "name";
-            case "rating", "averagerating" -> "averageRating";
             case "price", "pricelevel" -> "priceLevel";
             default -> "name";
         };

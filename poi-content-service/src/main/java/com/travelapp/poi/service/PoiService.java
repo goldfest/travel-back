@@ -40,5 +40,4 @@ public interface PoiService {
 
     long getPoiCountByType(Long poiTypeId);
 
-    void updateRating(Long poiId, BigDecimal newRating);
 }

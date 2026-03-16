@@ -91,9 +91,4 @@ public class PoiServiceImpl implements PoiService {
     public long getPoiCountByType(Long poiTypeId) {
         return queryService.getPoiCountByType(poiTypeId);
     }
-
-    @Override
-    public void updateRating(Long poiId, BigDecimal newRating) {
-        commandService.updateRating(poiId, newRating);
-    }
 }

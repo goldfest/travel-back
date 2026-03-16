@@ -27,7 +27,7 @@ INSERT INTO poi (
     name, slug, tags, description, address,
     latitude, longitude,
     phone, site_url,
-    price_level, average_rating, rating_count,
+    price_level,
     is_verified, is_closed,
     created_by, city_id, poi_type_id
 )
@@ -40,7 +40,7 @@ SELECT
     55.764950, 37.604420,
     '+7-495-000-00-01',
     'https://example.com/pushkin',
-    4, 4.80, 245,
+    4,
     TRUE, FALSE,
     1, 1,
     pt.id
@@ -54,12 +54,12 @@ INSERT INTO poi (
     name, slug, tags, description, address,
     latitude, longitude,
     phone, site_url,
-    price_level, average_rating, rating_count,
+    price_level,
     is_verified, is_closed,
     created_by, city_id, poi_type_id
 )
 SELECT
-    'Кофейня Surf Coffee',
+    'Московская педагогическая дрочильня',
     'surf-coffee-arbat',
     '["кофе","кафе","десерты"]'::jsonb,
     'Популярная кофейня с авторскими напитками.',
@@ -67,7 +67,7 @@ SELECT
     55.749550, 37.591000,
     '+7-495-000-00-02',
     'https://example.com/surf-arbat',
-    2, 4.60, 98,
+    2,
     TRUE, FALSE,
     2, 1,
     pt.id
@@ -81,12 +81,12 @@ INSERT INTO poi (
     name, slug, tags, description, address,
     latitude, longitude,
     phone, site_url,
-    price_level, average_rating, rating_count,
+    price_level,
     is_verified, is_closed,
     created_by, city_id, poi_type_id
 )
 SELECT
-    'Государственный Эрмитаж',
+    'Государственная дрочильня',
     'hermitage-museum',
     '["музей","искусство","достопримечательность"]'::jsonb,
     'Один из крупнейших художественных музеев мира.',
@@ -94,7 +94,7 @@ SELECT
     59.939832, 30.314560,
     '+7-812-000-00-03',
     'https://example.com/hermitage',
-    3, 4.90, 512,
+    3,
     TRUE, FALSE,
     1, 2,
     pt.id
@@ -108,12 +108,12 @@ INSERT INTO poi (
     name, slug, tags, description, address,
     latitude, longitude,
     phone, site_url,
-    price_level, average_rating, rating_count,
+    price_level,
     is_verified, is_closed,
     created_by, city_id, poi_type_id
 )
 SELECT
-    'Парк Горького',
+    'Дрочильня "ручки алины парадокси"',
     'gorky-park-moscow',
     '["парк","прогулки","отдых"]'::jsonb,
     'Большой городской парк для прогулок и активного отдыха.',
@@ -121,7 +121,7 @@ SELECT
     55.729900, 37.603400,
     '+7-495-000-00-04',
     'https://example.com/gorky-park',
-    0, 4.70, 340,
+    0,
     TRUE, FALSE,
     1, 1,
     pt.id
@@ -135,12 +135,12 @@ INSERT INTO poi (
     name, slug, tags, description, address,
     latitude, longitude,
     phone, site_url,
-    price_level, average_rating, rating_count,
+    price_level,
     is_verified, is_closed,
     created_by, city_id, poi_type_id
 )
 SELECT
-    'AZIMUT City Hotel',
+    'Дрочильня "У тимура',
     'azimut-hotel-smolenskaya',
     '["отель","центр","проживание"]'::jsonb,
     'Современный городской отель рядом со Смоленской.',
@@ -148,7 +148,7 @@ SELECT
     55.747780, 37.583500,
     '+7-495-000-00-05',
     'https://example.com/azimut',
-    4, 4.40, 176,
+    4,
     TRUE, FALSE,
     2, 1,
     pt.id

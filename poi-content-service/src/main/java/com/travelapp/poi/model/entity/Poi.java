@@ -62,12 +62,6 @@ public class Poi {
     @Column(name = "price_level")
     private Short priceLevel; // 0-4
 
-    @Column(name = "average_rating", precision = 3, scale = 2)
-    private BigDecimal averageRating = BigDecimal.ZERO;
-
-    @Column(name = "rating_count")
-    private Integer ratingCount = 0;
-
     @Column(name = "is_verified")
     private Boolean isVerified = false;
 
@@ -138,13 +132,4 @@ public class Poi {
         source.setPoi(this);
     }
 
-    // Update rating statistics
-    public void updateRating(BigDecimal newRating) {
-        if (ratingCount == null) ratingCount = 0;
-        if (averageRating == null) averageRating = BigDecimal.ZERO;
-
-        BigDecimal totalRating = averageRating.multiply(BigDecimal.valueOf(ratingCount)).add(newRating);
-        ratingCount++;
-        averageRating = totalRating.divide(BigDecimal.valueOf(ratingCount), 2, RoundingMode.HALF_UP);
-    }
 }

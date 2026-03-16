@@ -15,5 +15,4 @@ public interface PoiCommandService {
     void verifyPoi(Long id, Long adminId);
     void unverifyPoi(Long id, Long adminId);
 
-    void updateRating(Long poiId, BigDecimal newRating);
 }

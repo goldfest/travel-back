@@ -214,15 +214,4 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         poiRepository.save(poi);
     }
 
-    @Override
-    @Transactional
-    @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#poiId"),
-            @CacheEvict(value = "pois", allEntries = true)
-    })
-    public void updateRating(Long poiId, BigDecimal newRating) {
-        Poi poi = poiRepository.findById(poiId).orElseThrow(() -> new PoiNotFoundException(poiId));
-        poi.updateRating(newRating);
-        poiRepository.save(poi);
-    }
 }

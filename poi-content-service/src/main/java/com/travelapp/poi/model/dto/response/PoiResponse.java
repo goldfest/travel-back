@@ -25,8 +25,6 @@ public class PoiResponse {
     private String phone;
     private String siteUrl;
     private Short priceLevel;
-    private BigDecimal averageRating;
-    private Integer ratingCount;
     private Boolean isVerified;
     private Boolean isClosed;
     private LocalDateTime createdAt;
