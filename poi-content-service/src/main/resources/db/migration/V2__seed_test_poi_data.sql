@@ -338,7 +338,7 @@ INSERT INTO data_import_task (
 SELECT
     'OSM',
     'Moscow center restaurants',
-    'COMPLETED',
+    'SUCCESS',
     CURRENT_TIMESTAMP - INTERVAL '2 day',
     CURRENT_TIMESTAMP - INTERVAL '2 day' + INTERVAL '10 minute',
     25, 10, 5,
@@ -359,7 +359,7 @@ INSERT INTO data_import_task (
 SELECT
     '2GIS',
     'Saint Petersburg museums',
-    'COMPLETED',
+    'SUCCESS',
     CURRENT_TIMESTAMP - INTERVAL '1 day',
     CURRENT_TIMESTAMP - INTERVAL '1 day' + INTERVAL '7 minute',
     18, 7, 3,

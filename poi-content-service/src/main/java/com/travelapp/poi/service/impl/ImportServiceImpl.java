@@ -16,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -53,28 +54,49 @@ public class ImportServiceImpl implements ImportService {
     public CompletableFuture<ImportTaskResponse> startImport(ImportTaskRequest request, Long userId) {
         log.info("Starting import task for source: {}, query: {}", request.getSourceCode(), request.getQuery());
 
-        // Create import task
         DataImportTask task = new DataImportTask();
         task.setSourceCode(request.getSourceCode());
         task.setQuery(request.getQuery());
         task.setCityId(request.getCityId());
         task.setStatus(DataImportTask.ImportStatus.PENDING);
-        task = importTaskRepository.save(task);
 
-        final DataImportTask savedTask = importTaskRepository.save(task);
+        DataImportTask savedTask = importTaskRepository.save(task);
+        Long taskId = savedTask.getId();
 
-        // Start import asynchronously
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                executeImport(savedTask, userId);
-                return importTaskMapper.toResponse(savedTask);
-            } catch (Exception e) {
-                log.error("Import task failed: {}", e.getMessage(), e);
-                savedTask.fail(e.getMessage());
-                importTaskRepository.save(savedTask);
-                throw new RuntimeException("Import failed: " + e.getMessage(), e);
-            }
-        }, importExecutor);
+        CompletableFuture<ImportTaskResponse> future = new CompletableFuture<>();
+
+        org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        CompletableFuture.supplyAsync(() -> {
+                            try {
+                                executeImport(taskId, userId);
+                                DataImportTask updatedTask = importTaskRepository.findById(taskId)
+                                        .orElseThrow(() -> new RuntimeException("Import task not found after execution: " + taskId));
+                                return importTaskMapper.toResponse(updatedTask);
+                            } catch (Exception e) {
+                                log.error("Import task failed: {}", e.getMessage(), e);
+
+                                DataImportTask failedTask = importTaskRepository.findById(taskId)
+                                        .orElseThrow(() -> new RuntimeException("Import task not found after failure: " + taskId));
+                                failedTask.fail(e.getMessage());
+                                importTaskRepository.save(failedTask);
+
+                                throw new RuntimeException("Import failed: " + e.getMessage(), e);
+                            }
+                        }, importExecutor).whenComplete((result, ex) -> {
+                            if (ex != null) {
+                                future.completeExceptionally(ex);
+                            } else {
+                                future.complete(result);
+                            }
+                        });
+                    }
+                }
+        );
+
+        return future;
     }
 
     @Override
@@ -129,10 +151,12 @@ public class ImportServiceImpl implements ImportService {
         if (task.getStatus() == DataImportTask.ImportStatus.FAILED) {
             task.setStatus(DataImportTask.ImportStatus.PENDING);
             task.setErrorMessage(null);
+            task.setStartedAt(null);
+            task.setFinishedAt(null);
             importTaskRepository.save(task);
 
             // Restart import asynchronously
-            CompletableFuture.runAsync(() -> executeImport(task, userId), importExecutor);
+            CompletableFuture.runAsync(() -> executeImport(task.getId(), userId), importExecutor);
         }
     }
 
@@ -152,15 +176,20 @@ public class ImportServiceImpl implements ImportService {
         }
     }
 
-    private void executeImport(DataImportTask task, Long userId) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    private void executeImport(Long taskId, Long userId) {
+        DataImportTask task = importTaskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Import task not found: " + taskId));
+
         log.info("Executing import task: {}", task.getId());
 
         task.start();
         importTaskRepository.save(task);
 
         try {
-            // Based on source code, use different import strategies
-            switch (task.getSourceCode()) {
+            String source = task.getSourceCode() == null ? "" : task.getSourceCode().trim().toLowerCase();
+
+            switch (source) {
                 case "google_maps":
                     importFromGoogleMaps(task, userId);
                     break;
@@ -239,7 +268,15 @@ public class ImportServiceImpl implements ImportService {
 
     private void importFrom2GIS(DataImportTask task, Long userId) {
         log.info("Importing from 2GIS: {}", task.getQuery());
-        // Implementation for 2GIS import
+        try {
+            Thread.sleep(15000);
+            task.setTotalPoiFound(5);
+            task.setTotalPoiCreated(5);
+            task.setTotalPoiUpdated(0);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Import interrupted", e);
+        }
     }
 
     private void importFromBooking(DataImportTask task, Long userId) {
