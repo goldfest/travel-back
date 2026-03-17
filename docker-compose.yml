@@ -38,7 +38,7 @@ services:
     networks: [travel-net]
 
   poi-db:
-    image: postgres:16
+    image: postgis/postgis:16-3.4
     container_name: poi-db
     environment:
       POSTGRES_DB: poi_db
@@ -86,6 +86,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:8084/api
       CITY_SERVICE_URL: http://city-service:8082/api/cities
       REVIEW_SERVICE_URL: http://review-service:8083/api/reviews
+    restart: unless-stopped
     networks: [travel-net]
 
   review-db:

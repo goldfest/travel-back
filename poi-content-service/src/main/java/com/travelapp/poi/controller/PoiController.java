@@ -97,7 +97,7 @@ public class PoiController {
             @RequestParam BigDecimal lat,
             @RequestParam BigDecimal lng,
             @RequestParam(defaultValue = "5") Integer radiusKm,
-            @RequestParam(required = false) Integer limit
+            @RequestParam(defaultValue = "20") Integer limit
     ) {
         return ResponseEntity.ok(poiService.getNearbyPois(cityId, lat, lng, radiusKm, limit));
     }

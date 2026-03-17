@@ -7,6 +7,7 @@ import com.travelapp.poi.model.dto.response.PoiResponse;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.model.entity.PoiHours;
 import com.travelapp.poi.repository.PoiRepository;
+import com.travelapp.poi.service.NearbyPoiProjection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -65,11 +67,32 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     @Cacheable(value = "pois", key = "{#cityId, #userLat, #userLng, #radiusKm, #limit}")
     public List<PoiResponse> getNearbyPois(Long cityId, BigDecimal userLat, BigDecimal userLng,
                                            Integer radiusKm, Integer limit) {
-        List<Poi> pois = poiRepository.findNearby(cityId, userLat, userLng, radiusKm);
-        if (limit != null && limit > 0 && pois.size() > limit) {
-            pois = pois.subList(0, limit);
+
+        List<NearbyPoiProjection> nearby = poiRepository.findNearbyWithDistance(cityId, userLat, userLng, radiusKm);
+
+        if (limit != null && limit > 0 && nearby.size() > limit) {
+            nearby = nearby.subList(0, limit);
         }
-        return pois.stream().map(this::enrichPoiResponse).collect(Collectors.toList());
+
+        List<Long> poiIds = nearby.stream()
+                .map(NearbyPoiProjection::getId)
+                .toList();
+
+        if (poiIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Double> distanceMap = nearby.stream()
+                .collect(Collectors.toMap(NearbyPoiProjection::getId, NearbyPoiProjection::getDistanceKm));
+
+        Map<Long, Poi> poiMap = poiRepository.findAllById(poiIds).stream()
+                .collect(Collectors.toMap(Poi::getId, Function.identity()));
+
+        return poiIds.stream()
+                .map(poiMap::get)
+                .filter(Objects::nonNull)
+                .map(poi -> enrichPoiResponse(poi, distanceMap.get(poi.getId())))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -165,7 +188,13 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     // ---- enrich ----
 
     private PoiResponse enrichPoiResponse(Poi poi) {
+        return enrichPoiResponse(poi, null);
+    }
+
+    private PoiResponse enrichPoiResponse(Poi poi, Double distanceKm) {
         PoiResponse response = poiMapper.toResponse(poi);
+
+        response.setDistanceKm(distanceKm);
 
         if (poi.getHours() != null && !poi.getHours().isEmpty()) {
             response.setIsOpenNow(isOpenNow(poi.getHours()));
