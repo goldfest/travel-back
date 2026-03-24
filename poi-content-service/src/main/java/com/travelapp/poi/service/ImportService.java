@@ -9,7 +9,7 @@ import java.util.concurrent.CompletableFuture;
 
 public interface ImportService {
 
-    CompletableFuture<ImportTaskResponse> startImport(ImportTaskRequest request, Long userId);
+    ImportTaskResponse startImport(ImportTaskRequest request, Long userId);
 
     ImportTaskResponse getImportTask(Long taskId);
 

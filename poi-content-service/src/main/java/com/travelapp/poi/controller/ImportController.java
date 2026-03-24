@@ -25,12 +25,12 @@ public class ImportController {
 
     @PostMapping("/start")
     @Operation(summary = "Start import task", description = "Starts a new data import task (admin only)")
-    public ResponseEntity<CompletableFuture<ImportTaskResponse>> startImport(
+    public ResponseEntity<ImportTaskResponse> startImport(
             @Valid @RequestBody ImportTaskRequest request
     ) {
         Long userId = SecurityUtils.requireUserId();
-        CompletableFuture<ImportTaskResponse> future = importService.startImport(request, userId);
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(future);
+        ImportTaskResponse response = importService.startImport(request, userId);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     @GetMapping("/tasks/{taskId}")

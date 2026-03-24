@@ -51,7 +51,7 @@ public class ImportServiceImpl implements ImportService {
 
     @Override
     @Transactional
-    public CompletableFuture<ImportTaskResponse> startImport(ImportTaskRequest request, Long userId) {
+    public ImportTaskResponse startImport(ImportTaskRequest request, Long userId) {
         log.info("Starting import task for source: {}, query: {}", request.getSourceCode(), request.getQuery());
 
         DataImportTask task = new DataImportTask();
@@ -63,40 +63,22 @@ public class ImportServiceImpl implements ImportService {
         DataImportTask savedTask = importTaskRepository.save(task);
         Long taskId = savedTask.getId();
 
-        CompletableFuture<ImportTaskResponse> future = new CompletableFuture<>();
-
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                 new org.springframework.transaction.support.TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
-                        CompletableFuture.supplyAsync(() -> {
+                        CompletableFuture.runAsync(() -> {
                             try {
                                 executeImport(taskId, userId);
-                                DataImportTask updatedTask = importTaskRepository.findById(taskId)
-                                        .orElseThrow(() -> new RuntimeException("Import task not found after execution: " + taskId));
-                                return importTaskMapper.toResponse(updatedTask);
                             } catch (Exception e) {
-                                log.error("Import task failed: {}", e.getMessage(), e);
-
-                                DataImportTask failedTask = importTaskRepository.findById(taskId)
-                                        .orElseThrow(() -> new RuntimeException("Import task not found after failure: " + taskId));
-                                failedTask.fail(e.getMessage());
-                                importTaskRepository.save(failedTask);
-
-                                throw new RuntimeException("Import failed: " + e.getMessage(), e);
+                                log.error("Async import failed for task {}: {}", taskId, e.getMessage(), e);
                             }
-                        }, importExecutor).whenComplete((result, ex) -> {
-                            if (ex != null) {
-                                future.completeExceptionally(ex);
-                            } else {
-                                future.complete(result);
-                            }
-                        });
+                        }, importExecutor);
                     }
                 }
         );
 
-        return future;
+        return importTaskMapper.toResponse(savedTask);
     }
 
     @Override
@@ -212,15 +194,35 @@ public class ImportServiceImpl implements ImportService {
                     throw new IllegalArgumentException("Unsupported source: " + task.getSourceCode());
             }
 
-            task.complete(task.getTotalPoiCreated(), task.getTotalPoiUpdated());
-            importTaskRepository.save(task);
+            DataImportTask freshTask = importTaskRepository.findById(taskId)
+                    .orElseThrow(() -> new RuntimeException("Import task not found before completion: " + taskId));
 
-            log.info("Import task completed successfully: {}", task.getId());
+            if (freshTask.getStatus() == DataImportTask.ImportStatus.FAILED &&
+                    freshTask.getErrorMessage() != null &&
+                    freshTask.getErrorMessage().startsWith("Cancelled by user")) {
+                log.info("Import task {} was cancelled, skipping success completion", taskId);
+                return;
+            }
+
+            freshTask.setTotalPoiFound(task.getTotalPoiFound());
+            freshTask.setTotalPoiCreated(task.getTotalPoiCreated());
+            freshTask.setTotalPoiUpdated(task.getTotalPoiUpdated());
+            freshTask.complete(task.getTotalPoiCreated(), task.getTotalPoiUpdated());
+            importTaskRepository.save(freshTask);
+
+            log.info("Import task completed successfully: {}", freshTask.getId());
 
         } catch (Exception e) {
             log.error("Import task failed: {}", e.getMessage(), e);
-            task.fail(e.getMessage());
-            importTaskRepository.save(task);
+
+            DataImportTask failedTask = importTaskRepository.findById(taskId)
+                    .orElseThrow(() -> new RuntimeException("Import task not found on failure: " + taskId));
+
+            if (failedTask.getStatus() != DataImportTask.ImportStatus.FAILED) {
+                failedTask.fail(e.getMessage());
+                importTaskRepository.save(failedTask);
+            }
+
             throw new RuntimeException("Import execution failed", e);
         }
     }
