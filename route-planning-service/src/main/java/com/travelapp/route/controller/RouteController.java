@@ -1,9 +1,6 @@
 package com.travelapp.route.controller;
 
-import com.travelapp.route.model.dto.request.RouteCreateRequest;
-import com.travelapp.route.model.dto.request.RouteOptimizationRequest;
-import com.travelapp.route.model.dto.request.RoutePointRequest;
-import com.travelapp.route.model.dto.request.RouteUpdateRequest;
+import com.travelapp.route.model.dto.request.*;
 import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RouteService;
@@ -50,8 +47,8 @@ public class RouteController {
     @GetMapping
     @Operation(summary = "Получить все маршруты пользователя")
     public ResponseEntity<Page<RouteResponse>> getUserRoutes(
-            @RequestHeader("X-User-Id") Long userId,
             @PageableDefault(size = 20) Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
         Page<RouteResponse> routes = routeService.getUserRoutes(userId, pageable);
         return ResponseEntity.ok(routes);
     }
@@ -59,8 +56,8 @@ public class RouteController {
     @GetMapping("/archived")
     @Operation(summary = "Получить архивные маршруты")
     public ResponseEntity<Page<RouteResponse>> getArchivedRoutes(
-            @RequestHeader("X-User-Id") Long userId,
             @PageableDefault(size = 20) Pageable pageable) {
+        Long userId = SecurityUtils.requireUserId();
         Page<RouteResponse> routes = routeService.getArchivedRoutes(userId, pageable);
         return ResponseEntity.ok(routes);
     }
@@ -132,14 +129,13 @@ public class RouteController {
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/{id}/points/{poiId}")
+    @DeleteMapping("/{routeId}/points/{routePointId}")
     @Operation(summary = "Удалить точку из маршрута")
     public ResponseEntity<RouteResponse> removePointFromRoute(
-            @PathVariable Long id,
-            @PathVariable Long poiId) {
+            @PathVariable Long routeId,
+            @PathVariable Long routePointId) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.removePoiFromRoute(userId, id, poiId);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.removePointFromRoute(userId, routeId, routePointId));
     }
 
     @PostMapping("/{id}/reorder")
@@ -150,6 +146,17 @@ public class RouteController {
         Long userId = SecurityUtils.requireUserId();
         RouteResponse response = routeService.reorderRoutePoints(userId, id, pointIdsInOrder);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{routeId}/days/{dayId}/reorder")
+    public ResponseEntity<RouteResponse> reorderDayPoints(
+            @PathVariable Long routeId,
+            @PathVariable Long dayId,
+            @Valid @RequestBody ReorderRouteDayPointsRequest request) {
+        Long userId = SecurityUtils.requireUserId();
+        return ResponseEntity.ok(
+                routeService.reorderRouteDayPoints(userId, routeId, dayId, request.getRoutePointIdsInOrder())
+        );
     }
 
     @PostMapping("/{id}/optimize")
@@ -177,5 +184,12 @@ public class RouteController {
         Long userId = SecurityUtils.requireUserId();
         boolean available = routeService.isRouteNameAvailable(userId, name);
         return ResponseEntity.ok(available);
+    }
+
+    @PostMapping("/generate")
+    public ResponseEntity<RouteResponse> generateRoute(
+            @Valid @RequestBody RouteGenerateRequest request) {
+        Long userId = SecurityUtils.requireUserId();
+        return ResponseEntity.ok(routeService.generateRoute(userId, request));
     }
 }

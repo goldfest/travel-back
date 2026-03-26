@@ -127,3 +127,18 @@ CREATE TRIGGER update_route_points_updated_at
 COMMENT ON TABLE routes IS 'Хранит пользовательские маршруты путешествий';
 COMMENT ON TABLE route_days IS 'Хранит структуру маршрута по дням';
 COMMENT ON TABLE route_points IS 'Хранит точки маршрута с порядком посещения';
+
+ALTER TABLE routes
+    ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+    ADD CONSTRAINT chk_routes_status
+    CHECK (status IN ('DRAFT', 'READY', 'ARCHIVED'));
+
+ALTER TABLE route_points
+    ADD COLUMN IF NOT EXISTS poi_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS poi_address VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS poi_latitude DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS poi_longitude DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS poi_type VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS estimated_visit_minutes INTEGER NOT NULL DEFAULT 60,
+    ADD COLUMN IF NOT EXISTS planned_arrival_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS planned_departure_at TIMESTAMP;

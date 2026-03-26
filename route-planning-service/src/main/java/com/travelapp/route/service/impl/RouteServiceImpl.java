@@ -51,7 +51,7 @@ public class RouteServiceImpl implements RouteService {
         log.info("Creating route for user {}: {}", userId, request.getName());
 
         // Проверка уникальности названия
-        if (routeRepository.existsByUserIdAndNameAndIsArchived(userId, request.getName(), (short) 0)) {
+        if (routeRepository.existsByUserIdAndNameAndStatusNot(userId, request.getName(), Route.RouteStatus.ARCHIVED)) {
             throw new RouteValidationException("Маршрут с таким названием уже существует");
         }
 

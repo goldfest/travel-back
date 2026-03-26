@@ -1,6 +1,7 @@
 package com.travelapp.route.service;
 
 import com.travelapp.route.model.dto.request.RouteCreateRequest;
+import com.travelapp.route.model.dto.request.RouteGenerateRequest;
 import com.travelapp.route.model.dto.request.RouteUpdateRequest;
 import com.travelapp.route.model.dto.response.RouteResponse;
 import org.springframework.data.domain.Page;
@@ -20,23 +21,15 @@ public interface RouteService {
 
     RouteResponse updateRoute(Long userId, Long routeId, RouteUpdateRequest request);
 
-    void archiveRoute(Long userId, Long routeId);
-
-    void unarchiveRoute(Long userId, Long routeId);
-
     void deleteRoute(Long userId, Long routeId);
 
-    RouteResponse duplicateRoute(Long userId, Long routeId, String newName);
+    RouteResponse removePointFromRoute(Long userId, Long routeId, Long routePointId);
 
-    RouteResponse addPoiToRoute(Long userId, Long routeId, Long poiId, Short dayNumber, Short orderIndex);
-
-    RouteResponse removePoiFromRoute(Long userId, Long routeId, Long poiId);
-
-    RouteResponse reorderRoutePoints(Long userId, Long routeId, List<Long> pointIdsInOrder);
+    RouteResponse reorderRouteDayPoints(Long userId, Long routeId, Long dayId, List<Long> pointIdsInOrder);
 
     RouteResponse optimizeRoute(Long userId, Long routeId, String optimizationMode);
 
-    List<RouteResponse> getRoutesByCity(Long userId, Long cityId);
+    RouteResponse generateRoute(Long userId, RouteGenerateRequest request);
 
     long countUserRoutes(Long userId);
 

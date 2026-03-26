@@ -249,7 +249,6 @@ public class RouteExportService {
                         Map<String, Object> pointData = new LinkedHashMap<>();
                         pointData.put("orderIndex", point.getOrderIndex());
                         pointData.put("poiId", point.getPoiId());
-                        pointData.put("estimatedDuration", point.getEstimatedDuration());
 
                         if (includeAllDetails) {
                             try {
@@ -264,7 +263,6 @@ public class RouteExportService {
                                     poiData.put("phone", poi.getPhone());
                                     poiData.put("siteUrl", poi.getSiteUrl());
                                     poiData.put("priceLevel", poi.getPriceLevel());
-                                    poiData.put("averageRating", poi.getAverageRating());
                                     poiData.put("type", poi.getType());
 
                                     pointData.put("poiDetails", poiData);

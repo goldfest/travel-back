@@ -76,6 +76,10 @@ public class Route {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    private RouteStatus status = RouteStatus.DRAFT;
+
     public enum TransportMode {
         WALK, PUBLIC_TRANSPORT, CAR, MIXED
     }
@@ -102,4 +106,9 @@ public class Route {
     public void unarchive() {
         this.isArchived = 0;
     }
+
+    public enum RouteStatus {
+        DRAFT, READY, ARCHIVED
+    }
+
 }

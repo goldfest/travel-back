@@ -40,10 +40,6 @@ public class PoiResponse {
     @JsonProperty("price_level")
     private Short priceLevel;
 
-    @Schema(description = "Средний рейтинг", example = "4.7")
-    @JsonProperty("average_rating")
-    private Double averageRating;
-
     @Schema(description = "Количество отзывов", example = "1250")
     @JsonProperty("rating_count")
     private Integer ratingCount;

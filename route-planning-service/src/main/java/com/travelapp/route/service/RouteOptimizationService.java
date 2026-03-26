@@ -119,15 +119,15 @@ public class RouteOptimizationService {
                 }
 
                 // Сортируем точки по рейтингу (по убыванию)
-                day.getRoutePoints().sort((p1, p2) -> {
-                    PoiResponse poi1 = poiCache.get(p1.getPoiId());
-                    PoiResponse poi2 = poiCache.get(p2.getPoiId());
-
-                    double rating1 = poi1 != null ? poi1.getAverageRating() : 0.0;
-                    double rating2 = poi2 != null ? poi2.getAverageRating() : 0.0;
-
-                    return Double.compare(rating2, rating1);
-                });
+//                day.getRoutePoints().sort((p1, p2) -> {
+//                    PoiResponse poi1 = poiCache.get(p1.getPoiId());
+//                    PoiResponse poi2 = poiCache.get(p2.getPoiId());
+//
+//                    double rating1 = poi1 != null ? poi1.getAverageRating() : 0.0;
+//                    double rating2 = poi2 != null ? poi2.getAverageRating() : 0.0;
+//
+//                    return Double.compare(rating2, rating1);
+//                });
 
                 updateOrderIndices(day);
             }
@@ -301,7 +301,7 @@ public class RouteOptimizationService {
         if (type.contains("historic") || type.contains("monument")) score += 3;
 
         // Учитываем рейтинг
-        score += (int)(poi.getAverageRating() * 2);
+        //score += (int)(poi.getAverageRating() * 2);
 
         return score;
     }
@@ -369,7 +369,7 @@ public class RouteOptimizationService {
         int duration = 0;
 
         for (RoutePoint point : day.getRoutePoints()) {
-            duration += point.getEstimatedDuration() != null ? point.getEstimatedDuration() : 60;
+            //duration += point.getEstimatedDuration() != null ? point.getEstimatedDuration() : 60;
 
             // Добавляем время перемещения между точками (примерно 15 минут между точками)
             duration += 15;

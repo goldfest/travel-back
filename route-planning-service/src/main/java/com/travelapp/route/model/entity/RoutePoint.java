@@ -35,23 +35,29 @@ public class RoutePoint {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    @Transient
+    @Column(name = "poi_name", length = 255)
     private String poiName;
 
-    @Transient
+    @Column(name = "poi_address", length = 500)
     private String poiAddress;
 
-    @Transient
+    @Column(name = "poi_latitude")
     private Double poiLatitude;
 
-    @Transient
+    @Column(name = "poi_longitude")
     private Double poiLongitude;
 
-    @Transient
+    @Column(name = "poi_type", length = 100)
     private String poiType;
 
-    @Transient
-    private Integer estimatedDuration;
+    @Column(name = "estimated_visit_minutes", nullable = false)
+    private Integer estimatedVisitMinutes = 60;
+
+    @Column(name = "planned_arrival_at")
+    private LocalDateTime plannedArrivalAt;
+
+    @Column(name = "planned_departure_at")
+    private LocalDateTime plannedDepartureAt;
 
     // Helper methods
     public void setPoiDetails(String name, String address, Double lat, Double lng, String type) {
