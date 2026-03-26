@@ -18,17 +18,27 @@ public interface RouteMapper {
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "userId", ignore = true)
-    @Mapping(target = "isArchived", constant = "0")
     @Mapping(target = "isOptimized", constant = "false")
+    @Mapping(target = "distanceKm", ignore = true)
+    @Mapping(target = "durationMin", ignore = true)
+    @Mapping(target = "startPoint", ignore = true)
+    @Mapping(target = "endPoint", ignore = true)
     Route toEntity(RouteCreateRequest request);
 
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "userId", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "routeDays", ignore = true)
+    @Mapping(target = "distanceKm", ignore = true)
+    @Mapping(target = "durationMin", ignore = true)
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     void updateEntity(@MappingTarget Route route, RouteUpdateRequest request);
 
     @Mapping(target = "daysCount", expression = "java(route.getRouteDays() != null ? route.getRouteDays().size() : 0)")
     @Mapping(target = "totalPoints", expression = "java(calculateTotalPoints(route))")
-    @Mapping(target = "isArchived", expression = "java(route.isArchived())")
+    @Mapping(target = "status", source = "status")
+    @Mapping(target = "warnings", ignore = true)
     RouteResponse toResponse(Route route);
 
     List<RouteResponse> toResponseList(List<Route> routes);

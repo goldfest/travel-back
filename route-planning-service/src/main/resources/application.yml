@@ -48,15 +48,6 @@ spring:
     password: ${SPRING_REDIS_PASSWORD:}
     timeout: 6000
 
-services:
-  poi:
-    base-url: ${POI_SERVICE_URL:http://localhost:8081/api/poi}
-  auth:
-    url: ${AUTH_SERVICE_URL:http://localhost:8084/api}
-    me-path: /internal/users/me
-    info-path: /internal/users/{id}/info
-    exists-path: /internal/users/{id}/exists
-
 app:
   offline:
     ttl-days: 30

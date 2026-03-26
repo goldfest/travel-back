@@ -1,6 +1,7 @@
 package com.travelapp.route.model.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.model.entity.Route.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
@@ -39,9 +40,6 @@ public class RouteUpdateRequest {
     @Schema(description = "Конечная точка")
     private String endPoint;
 
-    @Schema(description = "Флаг архивации (0 - активный, 1 - архивный)")
-    private Short isArchived;
-
     @Schema(description = "Дата обновления планирования дня")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime dayPlanningDate;
@@ -51,4 +49,6 @@ public class RouteUpdateRequest {
 
     @Schema(description = "Режим оптимизации")
     private String optimizationMode;
+
+    private Route.RouteStatus status;
 }

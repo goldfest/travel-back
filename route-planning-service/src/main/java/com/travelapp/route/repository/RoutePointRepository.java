@@ -23,6 +23,8 @@ public interface RoutePointRepository extends JpaRepository<RoutePoint, Long> {
     @Query("SELECT rp FROM RoutePoint rp WHERE rp.routeDay.id = :routeDayId AND rp.poiId = :poiId")
     Optional<RoutePoint> findByRouteDayIdAndPoiId(@Param("routeDayId") Long routeDayId, @Param("poiId") Long poiId);
 
+    Optional<RoutePoint> findByIdAndRouteDayRouteId(Long id, Long routeId);
+
     @Query("SELECT MAX(rp.orderIndex) FROM RoutePoint rp WHERE rp.routeDay.id = :routeDayId")
     Optional<Short> findMaxOrderIndexByRouteDayId(@Param("routeDayId") Long routeDayId);
 

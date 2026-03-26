@@ -19,9 +19,19 @@ public interface RouteService {
 
     Page<RouteResponse> getArchivedRoutes(Long userId, Pageable pageable);
 
+    List<RouteResponse> getRoutesByCity(Long userId, Long cityId);
+
     RouteResponse updateRoute(Long userId, Long routeId, RouteUpdateRequest request);
 
+    void archiveRoute(Long userId, Long routeId);
+
+    void unarchiveRoute(Long userId, Long routeId);
+
     void deleteRoute(Long userId, Long routeId);
+
+    RouteResponse duplicateRoute(Long userId, Long routeId, String newName);
+
+    RouteResponse addPoiToRoute(Long userId, Long routeId, Long poiId, Short dayNumber, Short orderIndex);
 
     RouteResponse removePointFromRoute(Long userId, Long routeId, Long routePointId);
 

@@ -49,9 +49,9 @@ public class RouteValidator implements Validator {
                     "ID города обязателен");
         }
 
-        if (request.getDaysCount() != null && (request.getDaysCount() < 1 || request.getDaysCount() > 30)) {
-            errors.rejectValue("daysCount", "daysCount.range",
-                    "Количество дней должно быть от 1 до 30");
+        if (request.getDays() == null || request.getDays().isEmpty()) {
+            errors.rejectValue("days", "days.required",
+                    "Маршрут должен содержать хотя бы один день");
         }
     }
 
@@ -64,13 +64,6 @@ public class RouteValidator implements Validator {
         if (request.getDescription() != null && request.getDescription().length() > 500) {
             errors.rejectValue("description", "description.length",
                     "Описание не должно превышать 500 символов");
-        }
-
-        if (request.getIsArchived() != null &&
-                !request.getIsArchived().equals((short) 0) &&
-                !request.getIsArchived().equals((short) 1)) {
-            errors.rejectValue("isArchived", "isArchived.invalid",
-                    "Флаг архивации должен быть 0 или 1");
         }
 
         if (request.getDistanceKm() != null && request.getDistanceKm().compareTo(BigDecimal.ZERO) < 0) {

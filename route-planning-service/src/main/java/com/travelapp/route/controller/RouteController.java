@@ -5,7 +5,6 @@ import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RouteService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,167 +27,107 @@ public class RouteController {
 
     @PostMapping
     @Operation(summary = "Создать новый маршрут")
-    public ResponseEntity<RouteResponse> createRoute(
-            @Valid @RequestBody RouteCreateRequest request) {
+    public ResponseEntity<RouteResponse> createRoute(@Valid @RequestBody RouteCreateRequest request) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.createRoute(userId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(routeService.createRoute(userId, request));
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Получить маршрут по ID")
-    public ResponseEntity<RouteResponse> getRoute(
-            @PathVariable Long id) {
+    public ResponseEntity<RouteResponse> getRoute(@PathVariable Long id) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.getRouteById(userId, id);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.getRouteById(userId, id));
     }
 
     @GetMapping
-    @Operation(summary = "Получить все маршруты пользователя")
-    public ResponseEntity<Page<RouteResponse>> getUserRoutes(
-            @PageableDefault(size = 20) Pageable pageable) {
+    public ResponseEntity<Page<RouteResponse>> getUserRoutes(@PageableDefault(size = 20) Pageable pageable) {
         Long userId = SecurityUtils.requireUserId();
-        Page<RouteResponse> routes = routeService.getUserRoutes(userId, pageable);
-        return ResponseEntity.ok(routes);
+        return ResponseEntity.ok(routeService.getUserRoutes(userId, pageable));
     }
 
     @GetMapping("/archived")
-    @Operation(summary = "Получить архивные маршруты")
-    public ResponseEntity<Page<RouteResponse>> getArchivedRoutes(
-            @PageableDefault(size = 20) Pageable pageable) {
+    public ResponseEntity<Page<RouteResponse>> getArchivedRoutes(@PageableDefault(size = 20) Pageable pageable) {
         Long userId = SecurityUtils.requireUserId();
-        Page<RouteResponse> routes = routeService.getArchivedRoutes(userId, pageable);
-        return ResponseEntity.ok(routes);
+        return ResponseEntity.ok(routeService.getArchivedRoutes(userId, pageable));
     }
 
     @GetMapping("/city/{cityId}")
-    @Operation(summary = "Получить маршруты по городу")
-    public ResponseEntity<List<RouteResponse>> getRoutesByCity(
-            @PathVariable Long cityId) {
+    public ResponseEntity<List<RouteResponse>> getRoutesByCity(@PathVariable Long cityId) {
         Long userId = SecurityUtils.requireUserId();
-        List<RouteResponse> routes = routeService.getRoutesByCity(userId, cityId);
-        return ResponseEntity.ok(routes);
+        return ResponseEntity.ok(routeService.getRoutesByCity(userId, cityId));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Обновить маршрут")
-    public ResponseEntity<RouteResponse> updateRoute(
-            @PathVariable Long id,
-            @Valid @RequestBody RouteUpdateRequest request) {
+    public ResponseEntity<RouteResponse> updateRoute(@PathVariable Long id, @Valid @RequestBody RouteUpdateRequest request) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.updateRoute(userId, id, request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.updateRoute(userId, id, request));
     }
 
     @PostMapping("/{id}/archive")
-    @Operation(summary = "Архивировать маршрут")
-    public ResponseEntity<Void> archiveRoute(
-            @PathVariable Long id) {
+    public ResponseEntity<Void> archiveRoute(@PathVariable Long id) {
         Long userId = SecurityUtils.requireUserId();
         routeService.archiveRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/unarchive")
-    @Operation(summary = "Разархивировать маршрут")
-    public ResponseEntity<Void> unarchiveRoute(
-            @PathVariable Long id) {
+    public ResponseEntity<Void> unarchiveRoute(@PathVariable Long id) {
         Long userId = SecurityUtils.requireUserId();
         routeService.unarchiveRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Удалить маршрут")
-    public ResponseEntity<Void> deleteRoute(
-            @PathVariable Long id) {
+    public ResponseEntity<Void> deleteRoute(@PathVariable Long id) {
         Long userId = SecurityUtils.requireUserId();
         routeService.deleteRoute(userId, id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/duplicate")
-    @Operation(summary = "Дублировать маршрут")
-    public ResponseEntity<RouteResponse> duplicateRoute(
-            @PathVariable Long id,
-            @RequestParam(required = false) String newName) {
+    public ResponseEntity<RouteResponse> duplicateRoute(@PathVariable Long id, @RequestParam(required = false) String newName) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.duplicateRoute(userId, id, newName);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.duplicateRoute(userId, id, newName));
     }
 
     @PostMapping("/{id}/points")
-    @Operation(summary = "Добавить точку в маршрут")
-    public ResponseEntity<RouteResponse> addPointToRoute(
-            @PathVariable Long id,
-            @Valid @RequestBody RoutePointRequest request) {
+    public ResponseEntity<RouteResponse> addPointToRoute(@PathVariable Long id, @Valid @RequestBody RoutePointRequest request) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.addPoiToRoute(
-                userId, id, request.getPoiId(), request.getDayNumber(), request.getOrderIndex());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.addPoiToRoute(userId, id, request.getPoiId(), request.getDayNumber(), request.getOrderIndex()));
     }
 
     @DeleteMapping("/{routeId}/points/{routePointId}")
-    @Operation(summary = "Удалить точку из маршрута")
-    public ResponseEntity<RouteResponse> removePointFromRoute(
-            @PathVariable Long routeId,
-            @PathVariable Long routePointId) {
+    public ResponseEntity<RouteResponse> removePointFromRoute(@PathVariable Long routeId, @PathVariable Long routePointId) {
         Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(routeService.removePointFromRoute(userId, routeId, routePointId));
     }
 
-    @PostMapping("/{id}/reorder")
-    @Operation(summary = "Изменить порядок точек в маршруте")
-    public ResponseEntity<RouteResponse> reorderPoints(
-            @PathVariable Long id,
-            @RequestBody List<Long> pointIdsInOrder) {
-        Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.reorderRoutePoints(userId, id, pointIdsInOrder);
-        return ResponseEntity.ok(response);
-    }
-
     @PostMapping("/{routeId}/days/{dayId}/reorder")
-    public ResponseEntity<RouteResponse> reorderDayPoints(
-            @PathVariable Long routeId,
-            @PathVariable Long dayId,
-            @Valid @RequestBody ReorderRouteDayPointsRequest request) {
+    public ResponseEntity<RouteResponse> reorderDayPoints(@PathVariable Long routeId, @PathVariable Long dayId,
+                                                          @Valid @RequestBody ReorderRouteDayPointsRequest request) {
         Long userId = SecurityUtils.requireUserId();
-        return ResponseEntity.ok(
-                routeService.reorderRouteDayPoints(userId, routeId, dayId, request.getRoutePointIdsInOrder())
-        );
+        return ResponseEntity.ok(routeService.reorderRouteDayPoints(userId, routeId, dayId, request.getRoutePointIdsInOrder()));
     }
 
     @PostMapping("/{id}/optimize")
-    @Operation(summary = "Оптимизировать маршрут")
-    public ResponseEntity<RouteResponse> optimizeRoute(
-            @PathVariable Long id,
-            @Valid @RequestBody RouteOptimizationRequest request) {
+    public ResponseEntity<RouteResponse> optimizeRoute(@PathVariable Long id, @Valid @RequestBody RouteOptimizationRequest request) {
         Long userId = SecurityUtils.requireUserId();
-        RouteResponse response = routeService.optimizeRoute(userId, id, request.getOptimizationMode());
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(routeService.optimizeRoute(userId, id, request.getOptimizationMode()));
     }
 
     @GetMapping("/count")
-    @Operation(summary = "Получить количество активных маршрутов")
     public ResponseEntity<Long> countRoutes() {
         Long userId = SecurityUtils.requireUserId();
-        long count = routeService.countUserRoutes(userId);
-        return ResponseEntity.ok(count);
+        return ResponseEntity.ok(routeService.countUserRoutes(userId));
     }
 
     @GetMapping("/check-name")
-    @Operation(summary = "Проверить доступность имени маршрута")
-    public ResponseEntity<Boolean> checkRouteName(
-            @RequestParam String name) {
+    public ResponseEntity<Boolean> checkRouteName(@RequestParam String name) {
         Long userId = SecurityUtils.requireUserId();
-        boolean available = routeService.isRouteNameAvailable(userId, name);
-        return ResponseEntity.ok(available);
+        return ResponseEntity.ok(routeService.isRouteNameAvailable(userId, name));
     }
 
     @PostMapping("/generate")
-    public ResponseEntity<RouteResponse> generateRoute(
-            @Valid @RequestBody RouteGenerateRequest request) {
+    public ResponseEntity<RouteResponse> generateRoute(@Valid @RequestBody RouteGenerateRequest request) {
         Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(routeService.generateRoute(userId, request));
     }

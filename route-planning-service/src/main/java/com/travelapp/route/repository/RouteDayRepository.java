@@ -16,6 +16,8 @@ public interface RouteDayRepository extends JpaRepository<RouteDay, Long> {
 
     Optional<RouteDay> findByRouteIdAndDayNumber(Long routeId, Short dayNumber);
 
+    Optional<RouteDay> findByIdAndRouteId(Long dayId, Long routeId);
+
     @Query("SELECT MAX(rd.dayNumber) FROM RouteDay rd WHERE rd.route.id = :routeId")
     Optional<Short> findMaxDayNumberByRouteId(@Param("routeId") Long routeId);
 

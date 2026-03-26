@@ -281,7 +281,7 @@ public class OfflineRouteService {
                         Map<String, Object> p = new LinkedHashMap<>();
                         p.put("orderIndex", point.getOrderIndex());
                         p.put("poiId", point.getPoiId());
-                        p.put("estimatedDuration", point.getEstimatedDuration());
+                        p.put("estimatedDuration", point.getEstimatedVisitMinutes());
 
                         PoiResponse poi = poiMap.get(point.getPoiId());
                         if (poi != null) {
@@ -318,8 +318,7 @@ public class OfflineRouteService {
             d.put("phone", poi.getPhone());
             d.put("siteUrl", poi.getSiteUrl());
             d.put("priceLevel", poi.getPriceLevel());
-            d.put("averageRating", poi.getAverageRating());
-            d.put("type", poi.getType());
+                        d.put("type", poi.getType());
             d.put("coverUrl", poi.getCoverUrl());
             detailed.put(poi.getId(), d);
         }

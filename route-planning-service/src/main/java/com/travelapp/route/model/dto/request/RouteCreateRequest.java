@@ -18,21 +18,16 @@ public class RouteCreateRequest {
 
     @NotBlank(message = "Название маршрута обязательно")
     @Size(max = 255, message = "Название маршрута не должно превышать 255 символов")
-    @Schema(description = "Название маршрута", example = "Романтический уикенд в Санкт-Петербурге")
     private String name;
 
     @Size(max = 500, message = "Описание не должно превышать 500 символов")
-    @Schema(description = "Описание маршрута", example = "Уикенд для влюбленных с посещением лучших мест")
     private String description;
 
     @NotNull(message = "ID города обязателен")
-    @Schema(description = "ID города", example = "1")
     private Long cityId;
 
-    @Schema(description = "Режим транспорта", example = "WALK")
     private TransportMode transportMode = TransportMode.WALK;
 
-    @Schema(description = "Дата начала маршрута")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime startDate;
 
@@ -41,4 +36,8 @@ public class RouteCreateRequest {
     private List<RouteDayCreateRequest> days;
 
     private Route.RouteStatus status = Route.RouteStatus.DRAFT;
+
+    private Boolean autoOptimize = false;
+
+    private String optimizationMode = "TIME";
 }

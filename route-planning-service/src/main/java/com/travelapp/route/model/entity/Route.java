@@ -56,9 +56,6 @@ public class Route {
     @Column(name = "end_point", length = 300)
     private String endPoint;
 
-    @Column(name = "is_archived")
-    private Short isArchived = 0;
-
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
@@ -93,18 +90,6 @@ public class Route {
     public void removeRouteDay(RouteDay routeDay) {
         routeDays.remove(routeDay);
         routeDay.setRoute(null);
-    }
-
-    public boolean isArchived() {
-        return isArchived != null && isArchived == 1;
-    }
-
-    public void archive() {
-        this.isArchived = 1;
-    }
-
-    public void unarchive() {
-        this.isArchived = 0;
     }
 
     public enum RouteStatus {
