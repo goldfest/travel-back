@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -212,6 +213,14 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         Poi poi = poiRepository.findById(id).orElseThrow(() -> new PoiNotFoundException(id));
         poi.setIsVerified(false);
         poiRepository.save(poi);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PoiResponse> getPoisBatch(List<Long> ids) {
+        return poiRepository.findAllById(ids).stream()
+                .map(poiMapper::toResponse)
+                .toList();
     }
 
 }

@@ -5,6 +5,7 @@ import com.travelapp.poi.model.dto.request.PoiUpdateRequest;
 import com.travelapp.poi.model.dto.response.PoiResponse;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public interface PoiCommandService {
     PoiResponse createPoi(PoiCreateRequest request, Long userId);
@@ -14,5 +15,5 @@ public interface PoiCommandService {
 
     void verifyPoi(Long id, Long adminId);
     void unverifyPoi(Long id, Long adminId);
-
+    List<PoiResponse> getPoisBatch(List<Long> ids);
 }

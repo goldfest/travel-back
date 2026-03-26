@@ -40,4 +40,5 @@ public interface PoiService {
 
     long getPoiCountByType(Long poiTypeId);
 
+
 }

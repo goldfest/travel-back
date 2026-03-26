@@ -133,4 +133,12 @@ public class PoiController {
     public ResponseEntity<Long> getPoiCountByCity(@PathVariable Long cityId) {
         return ResponseEntity.ok(poiService.getPoiCountByCity(cityId));
     }
+
+    @GetMapping("/batch")
+    @Operation(summary = "Get POIs by ids", description = "Retrieves POIs by ids")
+    public ResponseEntity<List<PoiResponse>> getPoisBatch(
+            @RequestParam List<Long> ids
+    ) {
+        return ResponseEntity.ok(poiService.getPoisBatch(ids));
+    }
 }
