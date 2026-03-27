@@ -71,21 +71,25 @@ public class RouteOptimizationService {
             return new double[]{point.getPoiLatitude(), point.getPoiLongitude()};
         }
         try {
-            PoiResponse poi = poiClient.getPoiById(point.getPoiId()).orElse(null);
+            PoiResponse poi = poiClient.getPoiById(point.getPoiId());
             if (poi != null && poi.getLatitude() != null && poi.getLongitude() != null) {
                 point.setPoiLatitude(poi.getLatitude());
                 point.setPoiLongitude(poi.getLongitude());
                 if (point.getPoiName() == null) {
                     point.setPoiName(poi.getName());
                     point.setPoiAddress(poi.getAddress());
-                    point.setPoiType(poi.getType());
+                    point.setPoiType(extractPoiType(poi));
                 }
                 return new double[]{poi.getLatitude(), poi.getLongitude()};
             }
         } catch (Exception e) {
-            log.warn("Failed to load coordinates for POI {} from poi-service, using snapshot/fallback", point.getPoiId());
+            log.warn("Failed to load coordinates for POI {} from poi-service, using snapshot/fallback", point.getPoiId(), e);
         }
         return new double[]{0.0, 0.0};
+    }
+
+    private String extractPoiType(PoiResponse poi) {
+        return poi != null && poi.getPoiType() != null ? poi.getPoiType().getCode() : null;
     }
 
     private void updateOrderIndices(RouteDay day) {

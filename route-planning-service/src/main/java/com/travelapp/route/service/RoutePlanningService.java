@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,16 +21,42 @@ public class RoutePlanningService {
     private final PoiClient poiClient;
     private final DistanceCalculationService distanceService;
 
-    public PoiResponse findNearestToilet(double latitude, double longitude, int maxDistance, boolean freeOnly, boolean aroundTheClock) {
-        List<PoiResponse> toilets = poiClient.searchNearby(latitude, longitude, maxDistance, "toilet");
+    private String extractPoiType(PoiResponse poi) {
+        return poi != null && poi.getPoiType() != null ? poi.getPoiType().getCode() : null;
+    }
+
+    public PoiResponse findNearestToilet(Long cityId,
+                                         double latitude,
+                                         double longitude,
+                                         int radiusKm,
+                                         boolean freeOnly,
+                                         boolean aroundTheClock) {
+        List<PoiResponse> toilets = poiClient.searchNearby(cityId, latitude, longitude, radiusKm, 50);
+
         return toilets.stream()
+                .filter(Objects::nonNull)
+                .filter(poi -> "toilet".equalsIgnoreCase(extractPoiType(poi)))
                 .filter(toilet -> !freeOnly || (toilet.getPriceLevel() != null && toilet.getPriceLevel() == 0))
-                .min(Comparator.comparingDouble(t -> distanceService.calculateDistance(new double[]{latitude, longitude}, new double[]{t.getLatitude(), t.getLongitude()})))
+                .min(Comparator.comparingDouble(t ->
+                        distanceService.calculateDistance(
+                                new double[]{latitude, longitude},
+                                new double[]{t.getLatitude(), t.getLongitude()}
+                        )))
                 .orElse(null);
     }
 
-    public List<PoiResponse> getRouteSuggestions(Long userId, Long cityId, String poiType, int limit, double minRating) {
-        return poiClient.searchByCityAndType(cityId, poiType, 100).stream()
+    public List<PoiResponse> getRouteSuggestions(Long userId,
+                                                 Long cityId,
+                                                 double latitude,
+                                                 double longitude,
+                                                 int radiusKm,
+                                                 String poiType,
+                                                 int limit,
+                                                 double minRating) {
+        return poiClient.searchNearby(cityId, latitude, longitude, radiusKm, Math.max(limit * 3, 50)).stream()
+                .filter(Objects::nonNull)
+                .filter(poi -> poiType == null || poiType.isBlank()
+                        || poiType.equalsIgnoreCase(extractPoiType(poi)))
                 .filter(poi -> poi.getIsVerified() == null || poi.getIsVerified())
                 .filter(poi -> poi.getIsClosed() == null || !poi.getIsClosed())
                 .limit(limit)
@@ -60,9 +87,23 @@ public class RoutePlanningService {
         return distanceService.calculateTotalTravelTime(points, transportMode) + latitudes.size() * 60;
     }
 
-    public List<PoiResponse> findAlternativeRoutes(PoiResponse poi, double maxDistanceKm) {
-        return poiClient.searchNearby(poi.getLatitude(), poi.getLongitude(), (int) (maxDistanceKm * 1000), poi.getType()).stream()
+    public List<PoiResponse> findAlternativeRoutes(Long cityId, PoiResponse poi, double maxDistanceKm) {
+        if (poi == null || poi.getLatitude() == null || poi.getLongitude() == null) {
+            return List.of();
+        }
+
+        String sourceType = extractPoiType(poi);
+
+        return poiClient.searchNearby(
+                        cityId,
+                        poi.getLatitude(),
+                        poi.getLongitude(),
+                        (int) Math.ceil(maxDistanceKm),
+                        20
+                ).stream()
+                .filter(Objects::nonNull)
                 .filter(alt -> !alt.getId().equals(poi.getId()))
+                .filter(alt -> sourceType == null || sourceType.equalsIgnoreCase(extractPoiType(alt)))
                 .limit(5)
                 .collect(Collectors.toList());
     }

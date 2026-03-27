@@ -290,7 +290,7 @@ public class OfflineRouteService {
                             poiInfo.put("address", poi.getAddress());
                             poiInfo.put("latitude", poi.getLatitude());
                             poiInfo.put("longitude", poi.getLongitude());
-                            poiInfo.put("type", poi.getType());
+                            poiInfo.put("type", poi.getPoiType() != null ? poi.getPoiType().getCode() : null);
                             poiInfo.put("coverUrl", poi.getCoverUrl());
                             p.put("poiInfo", poiInfo);
                         }
@@ -318,7 +318,7 @@ public class OfflineRouteService {
             d.put("phone", poi.getPhone());
             d.put("siteUrl", poi.getSiteUrl());
             d.put("priceLevel", poi.getPriceLevel());
-                        d.put("type", poi.getType());
+            d.put("type", poi.getPoiType() != null ? poi.getPoiType().getCode() : null);
             d.put("coverUrl", poi.getCoverUrl());
             detailed.put(poi.getId(), d);
         }
@@ -346,7 +346,7 @@ public class OfflineRouteService {
                             mp.put("name", poi.getName());
                             mp.put("lat", poi.getLatitude());
                             mp.put("lng", poi.getLongitude());
-                            mp.put("type", poi.getType());
+                            mp.put("type", poi.getPoiType() != null ? poi.getPoiType().getCode() : null);
                         }
                         points.add(mp);
                     }

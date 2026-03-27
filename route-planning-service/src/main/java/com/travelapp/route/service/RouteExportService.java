@@ -148,7 +148,12 @@ public class RouteExportService {
                 if (day.getRoutePoints() != null) {
                     for (RoutePoint point : day.getRoutePoints()) {
                         try {
-                            PoiResponse poi = poiClient.getPoiById(point.getPoiId()).orElse(null);
+                            PoiResponse poi = null;
+                            try {
+                                poi = poiClient.getPoiById(point.getPoiId());
+                            } catch (Exception e) {
+                                log.warn("Failed to get POI details", e);
+                            }
                             if (poi != null) {
                                 pdf.append("BT\n/F1 9 Tf\n85 ").append(yPos).append(" Td\n(")
                                         .append(point.getOrderIndex()).append(". ")
@@ -193,7 +198,12 @@ public class RouteExportService {
                 if (day.getRoutePoints() != null) {
                     for (RoutePoint point : day.getRoutePoints()) {
                         try {
-                            PoiResponse poi = poiClient.getPoiById(point.getPoiId()).orElse(null);
+                            PoiResponse poi = null;
+                            try {
+                                poi = poiClient.getPoiById(point.getPoiId());
+                            } catch (Exception e) {
+                                log.warn("Failed to get POI details", e);
+                            }
                             if (poi != null) {
                                 gpx.append("      <trkpt lat=\"").append(poi.getLatitude())
                                         .append("\" lon=\"").append(poi.getLongitude()).append("\">\n");
@@ -252,7 +262,12 @@ public class RouteExportService {
 
                         if (includeAllDetails) {
                             try {
-                                PoiResponse poi = poiClient.getPoiById(point.getPoiId()).orElse(null);
+                                PoiResponse poi = null;
+                                try {
+                                    poi = poiClient.getPoiById(point.getPoiId());
+                                } catch (Exception e) {
+                                    log.warn("Failed to get POI details", e);
+                                }
                                 if (poi != null) {
                                     Map<String, Object> poiData = new LinkedHashMap<>();
                                     poiData.put("name", poi.getName());
@@ -263,7 +278,7 @@ public class RouteExportService {
                                     poiData.put("phone", poi.getPhone());
                                     poiData.put("siteUrl", poi.getSiteUrl());
                                     poiData.put("priceLevel", poi.getPriceLevel());
-                                    poiData.put("type", poi.getType());
+                                    poiData.put("type", poi.getPoiType() != null ? poi.getPoiType().getCode() : null);
 
                                     pointData.put("poiDetails", poiData);
                                 }

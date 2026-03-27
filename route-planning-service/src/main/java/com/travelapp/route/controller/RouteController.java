@@ -107,11 +107,13 @@ public class RouteController {
         Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(routeService.reorderRouteDayPoints(userId, routeId, dayId, request.getRoutePointIdsInOrder()));
     }
-
     @PostMapping("/{id}/optimize")
-    public ResponseEntity<RouteResponse> optimizeRoute(@PathVariable Long id, @Valid @RequestBody RouteOptimizationRequest request) {
+    public ResponseEntity<RouteResponse> optimizeRoute(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "TIME") String optimizationMode
+    ) {
         Long userId = SecurityUtils.requireUserId();
-        return ResponseEntity.ok(routeService.optimizeRoute(userId, id, request.getOptimizationMode()));
+        return ResponseEntity.ok(routeService.optimizeRoute(userId, id, optimizationMode));
     }
 
     @GetMapping("/count")

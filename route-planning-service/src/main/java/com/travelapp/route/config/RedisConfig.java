@@ -1,5 +1,10 @@
 package com.travelapp.route.config;
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
@@ -41,27 +46,37 @@ public class RedisConfig {
     }
 
     @Bean
-    public CacheManager cacheManager(RedisConnectionFactory redisConnectionFactory) {
-        // Конфигурация по умолчанию
+    public GenericJackson2JsonRedisSerializer redisSerializer() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.registerModule(new JavaTimeModule());
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        objectMapper.activateDefaultTyping(
+                LaissezFaireSubTypeValidator.instance,
+                ObjectMapper.DefaultTyping.NON_FINAL,
+                JsonTypeInfo.As.PROPERTY
+        );
+        return new GenericJackson2JsonRedisSerializer(objectMapper);
+    }
+
+    @Bean
+    public CacheManager cacheManager(
+            RedisConnectionFactory redisConnectionFactory,
+            GenericJackson2JsonRedisSerializer redisSerializer
+    ) {
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofHours(1))
-                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                .serializeKeysWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer())
+                )
+                .serializeValuesWith(
+                        RedisSerializationContext.SerializationPair.fromSerializer(redisSerializer)
+                )
                 .disableCachingNullValues();
 
-        // Конфигурация для конкретных кэшей
         Map<String, RedisCacheConfiguration> cacheConfigurations = new HashMap<>();
-
-        // Маршруты - кэшируем на 2 часа
         cacheConfigurations.put("routes", defaultConfig.entryTtl(Duration.ofHours(2)));
-
-        // Детали маршрутов - кэшируем на 4 часа
         cacheConfigurations.put("routeDetails", defaultConfig.entryTtl(Duration.ofHours(4)));
-
-        // Маршруты пользователя - кэшируем на 30 минут
         cacheConfigurations.put("userRoutes", defaultConfig.entryTtl(Duration.ofMinutes(30)));
-
-        // Кэш POI - кэшируем на 1 час
         cacheConfigurations.put("poiCache", defaultConfig.entryTtl(Duration.ofHours(1)));
 
         return RedisCacheManager.builder(redisConnectionFactory)
@@ -69,14 +84,5 @@ public class RedisConfig {
                 .withInitialCacheConfigurations(cacheConfigurations)
                 .transactionAware()
                 .build();
-    }
-
-    @Bean
-    public RedisCacheConfiguration cacheConfiguration() {
-        return RedisCacheConfiguration.defaultCacheConfig()
-                .entryTtl(Duration.ofMinutes(60))
-                .disableCachingNullValues()
-                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()));
     }
 }

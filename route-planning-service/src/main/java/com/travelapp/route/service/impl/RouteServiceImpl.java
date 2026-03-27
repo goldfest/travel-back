@@ -204,8 +204,15 @@ public class RouteServiceImpl implements RouteService {
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public RouteResponse addPoiToRoute(Long userId, Long routeId, Long poiId, Short dayNumber, Short orderIndex) {
         Route route = getOwnedRoute(userId, routeId);
-        PoiResponse poi = poiClient.getPoiById(poiId)
-                .orElseThrow(() -> new ResourceNotFoundException("Объект не найден"));
+        PoiResponse poi;
+        try {
+            poi = poiClient.getPoiById(poiId);
+        } catch (Exception e) {
+            throw new ResourceNotFoundException("Объект не найден");
+        }
+        if (poi == null) {
+            throw new ResourceNotFoundException("Объект не найден");
+        }
         validatePoiBelongsToCity(route.getCityId(), poi);
 
         RouteDay routeDay = resolveRouteDay(route, dayNumber);
@@ -467,7 +474,13 @@ public class RouteServiceImpl implements RouteService {
     }
 
     private void applyPoiSnapshot(RoutePoint point, PoiResponse poi) {
-        point.setPoiDetails(poi.getName(), poi.getAddress(), poi.getLatitude(), poi.getLongitude(), poi.getType());
+        point.setPoiDetails(
+                poi.getName(),
+                poi.getAddress(),
+                poi.getLatitude(),
+                poi.getLongitude(),
+                poi.getPoiType() != null ? poi.getPoiType().getCode() : null
+        );
     }
 
     private RoutePoint copyPoint(RoutePoint sourcePoint) {

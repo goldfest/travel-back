@@ -25,12 +25,13 @@ public class RoutePlanningController {
     @GetMapping("/nearest-toilet")
     @Operation(summary = "Найти ближайший туалет")
     public ResponseEntity<PoiResponse> findNearestToilet(
+            @RequestParam Long cityId,
             @Parameter(description = "Широта текущего местоположения")
             @RequestParam double latitude,
             @Parameter(description = "Долгота текущего местоположения")
             @RequestParam double longitude,
             @Parameter(description = "Максимальное расстояние в метрах", example = "1000")
-            @RequestParam(defaultValue = "1000") int maxDistance,
+            @RequestParam(defaultValue = "5") int radiusKm,
             @Parameter(description = "Требуется бесплатный туалет")
             @RequestParam(defaultValue = "false") boolean freeOnly,
             @Parameter(description = "Требуется круглосуточный туалет")
@@ -40,7 +41,7 @@ public class RoutePlanningController {
         log.info("Finding nearest toilet for user {} at ({}, {})", userId, latitude, longitude);
 
         PoiResponse toilet = routePlanningService.findNearestToilet(
-                latitude, longitude, maxDistance, freeOnly, aroundTheClock);
+                cityId, latitude, longitude, radiusKm, freeOnly, aroundTheClock);
 
         return toilet != null ?
                 ResponseEntity.ok(toilet) :
@@ -48,22 +49,18 @@ public class RoutePlanningController {
     }
 
     @GetMapping("/suggestions")
-    @Operation(summary = "Получить предложения для маршрута")
     public ResponseEntity<List<PoiResponse>> getRouteSuggestions(
-            @Parameter(description = "ID города")
             @RequestParam Long cityId,
-            @Parameter(description = "Тип объектов", example = "museum")
+            @RequestParam double latitude,
+            @RequestParam double longitude,
+            @RequestParam(defaultValue = "5") int radiusKm,
             @RequestParam(required = false) String poiType,
-            @Parameter(description = "Максимальное количество предложений", example = "10")
             @RequestParam(defaultValue = "10") int limit,
-            @Parameter(description = "Минимальный рейтинг", example = "4.0")
             @RequestParam(defaultValue = "4.0") double minRating) {
         Long userId = SecurityUtils.requireUserId();
 
-        log.info("Getting route suggestions for user {} in city {}", userId, cityId);
-
         List<PoiResponse> suggestions = routePlanningService.getRouteSuggestions(
-                userId, cityId, poiType, limit, minRating);
+                userId, cityId, latitude, longitude, radiusKm, poiType, limit, minRating);
 
         return ResponseEntity.ok(suggestions);
     }
