@@ -39,4 +39,6 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
     boolean existsByUserIdAndNameAndStatusNot(Long userId, String name, Route.RouteStatus status);
 
     boolean existsByUserIdAndNameAndStatus(Long userId, String name, Route.RouteStatus status);
+
+    Optional<Route> findByIdAndUserId(Long id, Long userId);
 }
