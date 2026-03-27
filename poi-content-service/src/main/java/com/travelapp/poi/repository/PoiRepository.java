@@ -89,4 +89,15 @@ public interface PoiRepository extends JpaRepository<Poi, Long>, JpaSpecificatio
     Page<Poi> findUnverified(Pageable pageable);
 
     Page<Poi> findByPoiTypeIdAndIsVerifiedTrue(Long poiTypeId, Pageable pageable);
+
+    Page<Poi> findByCityIdAndPoiTypeIdAndIsVerifiedTrueAndIsClosedFalse(
+            Long cityId,
+            Long poiTypeId,
+            Pageable pageable
+    );
+
+    Page<Poi> findByCityIdAndIsVerifiedTrueAndIsClosedFalse(
+            Long cityId,
+            Pageable pageable
+    );
 }

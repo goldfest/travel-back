@@ -40,5 +40,8 @@ public interface PoiService {
 
     long getPoiCountByType(Long poiTypeId);
 
+    List<PoiResponse> getPoisBatch(List<Long> ids);
+
+    List<PoiResponse> searchByCityAndType(Long cityId, String type, Integer limit);
 
 }

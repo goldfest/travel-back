@@ -141,4 +141,13 @@ public class PoiController {
     ) {
         return ResponseEntity.ok(poiService.getPoisBatch(ids));
     }
+
+    @GetMapping("/search/by-city-and-type")
+    public ResponseEntity<List<PoiResponse>> searchByCityAndType(
+            @RequestParam Long cityId,
+            @RequestParam(required = false) String type,
+            @RequestParam(defaultValue = "100") int limit
+    ) {
+        return ResponseEntity.ok(poiService.searchByCityAndType(cityId, type, limit));
+    }
 }

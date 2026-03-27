@@ -7,6 +7,7 @@ import com.travelapp.poi.model.dto.response.PoiResponse;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.model.entity.PoiHours;
 import com.travelapp.poi.repository.PoiRepository;
+import com.travelapp.poi.repository.PoiTypeRepository;
 import com.travelapp.poi.service.NearbyPoiProjection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
     private final PoiRepository poiRepository;
     private final PoiMapper poiMapper;
+    private final PoiTypeRepository poiTypeRepository;
 
     @Override
     @Cacheable(value = "poiCache", key = "#id")
@@ -217,5 +219,35 @@ public class PoiQueryServiceImpl implements PoiQueryService {
             }
         }
         return false;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PoiResponse> getPoisBatch(List<Long> ids) {
+        return poiRepository.findAllById(ids).stream()
+                .map(poiMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PoiResponse> searchByCityAndType(Long cityId, String type, Integer limit) {
+        PageRequest pageable = PageRequest.of(0, limit);
+
+        if (type == null || type.isBlank()) {
+            return poiRepository.findByCityIdAndIsVerifiedTrueAndIsClosedFalse(cityId, pageable)
+                    .stream()
+                    .map(this::enrichPoiResponse)
+                    .toList();
+        }
+
+        var poiType = poiTypeRepository.findByCode(type)
+                .orElseThrow(() -> new IllegalArgumentException("POI type not found: " + type));
+
+        return poiRepository.findByCityIdAndPoiTypeIdAndIsVerifiedTrueAndIsClosedFalse(
+                        cityId, poiType.getId(), pageable)
+                .stream()
+                .map(this::enrichPoiResponse)
+                .toList();
     }
 }

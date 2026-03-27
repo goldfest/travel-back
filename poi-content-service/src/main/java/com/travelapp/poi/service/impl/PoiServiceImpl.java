@@ -93,5 +93,14 @@ public class PoiServiceImpl implements PoiService {
         return queryService.getPoiCountByType(poiTypeId);
     }
 
+    @Override
+    public List<PoiResponse> getPoisBatch(List<Long> ids) {
+        return queryService.getPoisBatch(ids);
+    }
+
+    @Override
+    public List<PoiResponse> searchByCityAndType(Long cityId, String type, Integer limit) {
+        return queryService.searchByCityAndType(cityId, type, limit);
+    }
 
 }

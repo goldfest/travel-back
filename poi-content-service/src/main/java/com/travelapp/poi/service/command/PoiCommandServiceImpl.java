@@ -215,12 +215,4 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         poiRepository.save(poi);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<PoiResponse> getPoisBatch(List<Long> ids) {
-        return poiRepository.findAllById(ids).stream()
-                .map(poiMapper::toResponse)
-                .toList();
-    }
-
 }
