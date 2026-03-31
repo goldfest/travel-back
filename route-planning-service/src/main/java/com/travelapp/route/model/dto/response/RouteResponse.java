@@ -2,6 +2,7 @@ package com.travelapp.route.model.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.model.entity.Route.TransportMode;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -43,6 +44,7 @@ public class RouteResponse {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime updatedAt;
 
+    @JsonProperty("days")
     private List<RouteDayResponse> routeDays;
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)

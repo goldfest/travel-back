@@ -1,6 +1,7 @@
 package com.travelapp.route.model.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -42,9 +43,12 @@ public class RouteDayResponse {
     private Integer pointsCount;
 
     @Schema(description = "Список точек маршрута")
+    @JsonProperty("points")
     private List<RoutePointResponse> routePoints;
 
     @Schema(description = "Дата создания")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime createdAt;
+
+    private Long routeId;
 }

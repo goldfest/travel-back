@@ -12,6 +12,7 @@ import java.util.List;
         unmappedTargetPolicy = ReportingPolicy.IGNORE)
 public interface RouteDayMapper {
 
+    @Mapping(target = "routeId", source = "route.id")
     @Mapping(target = "pointsCount", expression = "java(day.getRoutePoints() != null ? day.getRoutePoints().size() : 0)")
     @Mapping(target = "startTime", source = "plannedStart", qualifiedByName = "extractTime")
     @Mapping(target = "endTime", source = "plannedEnd", qualifiedByName = "extractTime")
