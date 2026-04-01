@@ -38,5 +38,4 @@ public interface ReviewService {
 
     ReviewResponse getReviewByPoiAndUser(Long poiId, Long userId);
 
-    void updatePoiRatingStats(Long poiId);
 }

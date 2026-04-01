@@ -59,7 +59,6 @@ public class ReviewServiceImpl implements ReviewService {
         review.setUserId(userId);
 
         Review savedReview = reviewRepository.save(review);
-        updatePoiRatingStats(request.getPoiId());
 
         InternalUserResponse author = resolveUser(savedReview.getUserId());
         String userName = author != null && author.getUsername() != null && !author.getUsername().isBlank()
@@ -153,7 +152,6 @@ public class ReviewServiceImpl implements ReviewService {
 
         reviewMapper.updateEntity(review, request);
         Review updatedReview = reviewRepository.save(review);
-        updatePoiRatingStats(updatedReview.getPoiId());
 
         InternalUserResponse user = resolveUser(updatedReview.getUserId());
         String userName = user != null && user.getUsername() != null && !user.getUsername().isBlank()
@@ -180,7 +178,6 @@ public class ReviewServiceImpl implements ReviewService {
 
         Long poiId = review.getPoiId();
         reviewRepository.delete(review);
-        updatePoiRatingStats(poiId);
     }
 
     @Override
@@ -195,7 +192,6 @@ public class ReviewServiceImpl implements ReviewService {
 
         review.setIsHidden(true);
         reviewRepository.save(review);
-        updatePoiRatingStats(review.getPoiId());
     }
 
     @Override
@@ -210,7 +206,6 @@ public class ReviewServiceImpl implements ReviewService {
 
         review.setIsHidden(false);
         reviewRepository.save(review);
-        updatePoiRatingStats(review.getPoiId());
     }
 
     @Override
@@ -281,19 +276,6 @@ public class ReviewServiceImpl implements ReviewService {
     @Override
     public boolean hasUserReviewedPoi(Long userId, Long poiId) {
         return reviewRepository.existsByPoiIdAndUserId(poiId, userId);
-    }
-
-    @Override
-    @Transactional
-    public void updatePoiRatingStats(Long poiId) {
-        Double averageRating = reviewRepository.calculateAverageRating(poiId);
-        Long reviewCount = reviewRepository.countVisibleReviews(poiId);
-
-        Map<String, Object> ratingUpdate = new HashMap<>();
-        ratingUpdate.put("averageRating", averageRating != null ? averageRating : 0.0);
-        ratingUpdate.put("ratingCount", reviewCount != null ? reviewCount : 0L);
-
-        poiClient.updatePoiRating(poiId, ratingUpdate);
     }
 
     private InternalUserResponse resolveUser(Long userId) {

@@ -16,12 +16,6 @@ public interface PoiClient {
     @GetMapping("/internal/{poiId}/exists")
     Boolean checkPoiExists(@PathVariable("poiId") Long poiId);
 
-    @PutMapping("/internal/{poiId}/rating")
-    void updatePoiRating(
-            @PathVariable("poiId") Long poiId,
-            @RequestBody Map<String, Object> ratingUpdate
-    );
-
     @PostMapping("/internal/{poiId}/report")
     void reportPoi(
             @PathVariable("poiId") Long poiId,
