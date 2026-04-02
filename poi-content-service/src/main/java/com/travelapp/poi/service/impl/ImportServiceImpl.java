@@ -3,9 +3,11 @@ package com.travelapp.poi.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travelapp.poi.client.MlPoiWorkerClient;
+import com.travelapp.poi.client.TwoGisClient;
 import com.travelapp.poi.mapper.ImportTaskMapper;
 import com.travelapp.poi.mapper.MlPoiMapper;
 import com.travelapp.poi.mapper.MlRawRequestMapper;
+import com.travelapp.poi.mapper.TwoGisToMlRawMapper;
 import com.travelapp.poi.model.dto.request.ImportTaskRequest;
 import com.travelapp.poi.model.dto.response.ImportTaskResponse;
 import com.travelapp.poi.model.entity.DataImportTask;
@@ -52,6 +54,9 @@ public class ImportServiceImpl implements ImportService {
     private final MlRawRequestMapper mlRawRequestMapper;
 
     private final SlugService slugService;
+
+    private final TwoGisClient twoGisClient;
+    private final TwoGisToMlRawMapper twoGisToMlRawMapper;
 
     private final ExecutorService importExecutor = Executors.newFixedThreadPool(5);
 
@@ -405,37 +410,49 @@ public class ImportServiceImpl implements ImportService {
                 throw new IllegalArgumentException("City ID is required for 2GIS import");
             }
 
-            MlRawMediaDto media = new MlRawMediaDto();
-            media.setUrl("https://example.com/media/pushkin-1.jpg");
-            media.setMediaType("IMAGE");
+            var rawPois = twoGisClient.search(task.getQuery(), task.getCityId());
+            found = rawPois.size();
 
-            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
-                    task.getCityId(),
-                    "ru",
-                    "restaurant",
-                    "TWO_GIS",
-                    task.getQuery(),
-                    null,
-                    "Ресторан Пушкин",
-                    "Известный ресторан русской кухни в центре города. Популярен среди туристов благодаря интерьеру и высокому уровню сервиса.",
-                    "Москва, Тверской бульвар, 26А",
-                    55.76495,
-                    37.60442,
-                    "+7-495-000-00-01",
-                    task.getQuery(),
-                    4,
-                    "restaurant",
-                    Map.of(
-                            "parking", "false",
-                            "wifi", "true"
-                    ),
-                    List.of(),
-                    List.of(media)
-            );
+            for (var rawPoi : rawPois) {
+                try {
+                    MlEnrichRawRequest enrichRequest = twoGisToMlRawMapper.toMlRequest(rawPoi, task.getCityId());
+                    MlEnrichResponse enrichResponse = mlPoiWorkerClient.enrichRaw(enrichRequest);
 
-            found++;
-            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
-                created++;
+                    if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
+                        log.warn("Skipping invalid ML response for rawPoi externalId={}", rawPoi.getExternalId());
+                        continue;
+                    }
+
+                    if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
+                        log.warn("2GIS POI rejected by ML. taskId={}, externalId={}, errors={}",
+                                task.getId(),
+                                rawPoi.getExternalId(),
+                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null);
+                        continue;
+                    }
+
+                    var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
+                    createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
+
+                    var createdPoi = poiService.createPoi(createRequest, userId);
+                    created++;
+
+                    if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+                        poiService.verifyPoiInternal(createdPoi.getId());
+                    }
+
+                    log.info("2GIS POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+                            task.getId(),
+                            rawPoi.getExternalId(),
+                            createdPoi.getId(),
+                            enrichResponse.getStatusRecommendation());
+
+                } catch (Exception itemEx) {
+                    log.error("Failed to process one 2GIS POI. taskId={}, error={}",
+                            task.getId(),
+                            itemEx.getMessage(),
+                            itemEx);
+                }
             }
 
             task.setTotalPoiFound(found);
