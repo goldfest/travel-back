@@ -44,4 +44,6 @@ public interface PoiService {
 
     List<PoiResponse> searchByCityAndType(Long cityId, String type, Integer limit);
 
+    void verifyPoiInternal(Long id);
+
 }

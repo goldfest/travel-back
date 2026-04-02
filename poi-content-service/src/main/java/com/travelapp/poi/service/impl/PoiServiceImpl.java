@@ -103,4 +103,9 @@ public class PoiServiceImpl implements PoiService {
         return queryService.searchByCityAndType(cityId, type, limit);
     }
 
+    @Override
+    public void verifyPoiInternal(Long id) {
+        commandService.verifyPoiInternal(id);
+    }
+
 }

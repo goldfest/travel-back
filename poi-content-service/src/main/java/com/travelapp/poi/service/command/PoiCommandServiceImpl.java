@@ -215,4 +215,18 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         poiRepository.save(poi);
     }
 
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "pois", allEntries = true)
+    })
+    public void verifyPoiInternal(Long id) {
+        Poi poi = poiRepository.findById(id)
+                .orElseThrow(() -> new PoiNotFoundException(id));
+
+        poi.setIsVerified(true);
+        poiRepository.save(poi);
+    }
+
 }

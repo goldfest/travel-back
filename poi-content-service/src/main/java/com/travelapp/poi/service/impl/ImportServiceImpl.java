@@ -2,12 +2,20 @@ package com.travelapp.poi.service.impl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travelapp.poi.client.MlPoiWorkerClient;
+import com.travelapp.poi.mapper.ImportTaskMapper;
+import com.travelapp.poi.mapper.MlPoiMapper;
+import com.travelapp.poi.mapper.MlRawRequestMapper;
 import com.travelapp.poi.model.dto.request.ImportTaskRequest;
 import com.travelapp.poi.model.dto.response.ImportTaskResponse;
 import com.travelapp.poi.model.entity.DataImportTask;
+import com.travelapp.poi.model.ml.MlEnrichResponse;
+import com.travelapp.poi.model.ml.MlStatusRecommendation;
+import com.travelapp.poi.model.ml.request.MlEnrichRawRequest;
+import com.travelapp.poi.model.ml.request.MlRawMediaDto;
 import com.travelapp.poi.repository.DataImportTaskRepository;
 import com.travelapp.poi.service.ImportService;
-import com.travelapp.poi.mapper.ImportTaskMapper;
+import com.travelapp.poi.service.slug.SlugService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +31,8 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -36,6 +46,12 @@ public class ImportServiceImpl implements ImportService {
     private final ImportTaskMapper importTaskMapper;
     private final PoiServiceImpl poiService;
     private final ObjectMapper objectMapper;
+
+    private final MlPoiWorkerClient mlPoiWorkerClient;
+    private final MlPoiMapper mlPoiMapper;
+    private final MlRawRequestMapper mlRawRequestMapper;
+
+    private final SlugService slugService;
 
     private final ExecutorService importExecutor = Executors.newFixedThreadPool(5);
 
@@ -93,22 +109,19 @@ public class ImportServiceImpl implements ImportService {
     @Override
     @Transactional(readOnly = true)
     public Page<ImportTaskResponse> getImportTasks(Pageable pageable) {
-        Page<DataImportTask> tasks = importTaskRepository.findAll(pageable);
-        return tasks.map(importTaskMapper::toResponse);
+        return importTaskRepository.findAll(pageable).map(importTaskMapper::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ImportTaskResponse> getImportTasksBySource(String sourceCode, Pageable pageable) {
-        Page<DataImportTask> tasks = importTaskRepository.findBySourceCode(sourceCode, pageable);
-        return tasks.map(importTaskMapper::toResponse);
+        return importTaskRepository.findBySourceCode(sourceCode, pageable).map(importTaskMapper::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ImportTaskResponse> getImportTasksByCity(Long cityId, Pageable pageable) {
-        Page<DataImportTask> tasks = importTaskRepository.findByCityId(cityId, pageable);
-        return tasks.map(importTaskMapper::toResponse);
+        return importTaskRepository.findByCityId(cityId, pageable).map(importTaskMapper::toResponse);
     }
 
     @Override
@@ -137,14 +150,13 @@ public class ImportServiceImpl implements ImportService {
             task.setFinishedAt(null);
             importTaskRepository.save(task);
 
-            // Restart import asynchronously
             CompletableFuture.runAsync(() -> executeImport(task.getId(), userId), importExecutor);
         }
     }
 
     @Override
     @Transactional
-    @Scheduled(fixedDelay = 300000) // Every 5 minutes
+    @Scheduled(fixedDelay = 300000)
     public void cleanupStalledTasks() {
         log.info("Checking for stalled import tasks");
 
@@ -179,6 +191,7 @@ public class ImportServiceImpl implements ImportService {
                     importFromYandex(task, userId);
                     break;
                 case "wiki":
+                case "wikipedia":
                     importFromWikipedia(task, userId);
                     break;
                 case "2gis":
@@ -197,9 +210,9 @@ public class ImportServiceImpl implements ImportService {
             DataImportTask freshTask = importTaskRepository.findById(taskId)
                     .orElseThrow(() -> new RuntimeException("Import task not found before completion: " + taskId));
 
-            if (freshTask.getStatus() == DataImportTask.ImportStatus.FAILED &&
-                    freshTask.getErrorMessage() != null &&
-                    freshTask.getErrorMessage().startsWith("Cancelled by user")) {
+            if (freshTask.getStatus() == DataImportTask.ImportStatus.FAILED
+                    && freshTask.getErrorMessage() != null
+                    && freshTask.getErrorMessage().startsWith("Cancelled by user")) {
                 log.info("Import task {} was cancelled, skipping success completion", taskId);
                 return;
             }
@@ -230,73 +243,337 @@ public class ImportServiceImpl implements ImportService {
     private void importFromGoogleMaps(DataImportTask task, Long userId) {
         log.info("Importing from Google Maps: {}", task.getQuery());
 
-        // This is a placeholder implementation
-        // In real implementation, you would call Google Places API
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
         try {
-            // Simulate API call
-            Thread.sleep(2000);
-
-            // Parse response and create POIs
-            int created = 0;
-            int updated = 0;
-
-            // For demonstration, create some sample POIs
-            if (task.getCityId() != null) {
-                // Create sample museums
-                created += createSamplePois(task.getCityId(), userId, "museum");
-                // Create sample restaurants
-                created += createSamplePois(task.getCityId(), userId, "restaurant");
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for Google Maps import");
             }
 
-            task.setTotalPoiFound(created + updated);
+            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
+                    task.getCityId(),
+                    "ru",
+                    "landmark",
+                    "GOOGLE_MAPS",
+                    task.getQuery(),
+                    null,
+                    "Тестовый объект Google Maps",
+                    "Тестовое описание объекта, полученного из Google Maps. Оно используется как временный raw payload для проверки интеграции Java и ML.",
+                    "Неизвестный адрес",
+                    55.751244,
+                    37.618423,
+                    null,
+                    task.getQuery(),
+                    0,
+                    "landmark",
+                    Map.of("touristAttraction", "true"),
+                    List.of(),
+                    List.of()
+            );
+
+            found++;
+            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+                created++;
+            }
+
+            task.setTotalPoiFound(found);
             task.setTotalPoiCreated(created);
             task.setTotalPoiUpdated(updated);
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Import interrupted", e);
+        } catch (Exception ex) {
+            throw new RuntimeException("Google Maps import failed: " + ex.getMessage(), ex);
         }
     }
 
     private void importFromYandex(DataImportTask task, Long userId) {
         log.info("Importing from Yandex: {}", task.getQuery());
-        // Similar to Google Maps implementation
+
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
+        try {
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for Yandex import");
+            }
+
+            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
+                    task.getCityId(),
+                    "ru",
+                    "landmark",
+                    "YANDEX",
+                    task.getQuery(),
+                    null,
+                    "Тестовый объект Yandex",
+                    "Тестовое описание объекта, полученного из Yandex. Используется для проверки общей интеграции импорта с ML сервисом.",
+                    "Неизвестный адрес",
+                    55.751244,
+                    37.618423,
+                    null,
+                    task.getQuery(),
+                    0,
+                    "landmark",
+                    Map.of("touristAttraction", "true"),
+                    List.of(),
+                    List.of()
+            );
+
+            found++;
+            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+                created++;
+            }
+
+            task.setTotalPoiFound(found);
+            task.setTotalPoiCreated(created);
+            task.setTotalPoiUpdated(updated);
+
+        } catch (Exception ex) {
+            throw new RuntimeException("Yandex import failed: " + ex.getMessage(), ex);
+        }
     }
 
     private void importFromWikipedia(DataImportTask task, Long userId) {
         log.info("Importing from Wikipedia: {}", task.getQuery());
-        // Implementation for Wikipedia import
+
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
+        try {
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for Wikipedia import");
+            }
+
+            var request = new com.travelapp.poi.model.ml.request.MlImportFromSourceRequest();
+            request.setSourceCode("WIKIPEDIA");
+            request.setSourceUrl(task.getQuery());
+            request.setCityId(task.getCityId());
+            request.setLanguage("ru");
+            request.setPoiTypeHint("landmark");
+
+            MlEnrichResponse enrichResponse = mlPoiWorkerClient.importFromSource(request);
+            found++;
+
+            if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
+                throw new RuntimeException("Invalid ML enrich response from Wikipedia import");
+            }
+
+            if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
+                log.warn("Wikipedia POI rejected by ML. taskId={}, errors={}, warnings={}",
+                        task.getId(),
+                        enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
+                        enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
+            } else {
+                var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
+
+                // уникализируем slug перед созданием
+                createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
+
+                var createdPoi = poiService.createPoi(createRequest, userId);
+                created++;
+
+                if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+                    poiService.verifyPoiInternal(createdPoi.getId());
+                }
+
+                log.info("Wikipedia POI imported successfully. taskId={}, poiId={}, statusRecommendation={}",
+                        task.getId(),
+                        createdPoi.getId(),
+                        enrichResponse.getStatusRecommendation());
+            }
+
+            task.setTotalPoiFound(found);
+            task.setTotalPoiCreated(created);
+            task.setTotalPoiUpdated(updated);
+
+        } catch (Exception ex) {
+            throw new RuntimeException("Wikipedia import failed: " + ex.getMessage(), ex);
+        }
     }
 
     private void importFrom2GIS(DataImportTask task, Long userId) {
         log.info("Importing from 2GIS: {}", task.getQuery());
+
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
         try {
-            Thread.sleep(15000);
-            task.setTotalPoiFound(5);
-            task.setTotalPoiCreated(5);
-            task.setTotalPoiUpdated(0);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Import interrupted", e);
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for 2GIS import");
+            }
+
+            MlRawMediaDto media = new MlRawMediaDto();
+            media.setUrl("https://example.com/media/pushkin-1.jpg");
+            media.setMediaType("IMAGE");
+
+            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
+                    task.getCityId(),
+                    "ru",
+                    "restaurant",
+                    "TWO_GIS",
+                    task.getQuery(),
+                    null,
+                    "Ресторан Пушкин",
+                    "Известный ресторан русской кухни в центре города. Популярен среди туристов благодаря интерьеру и высокому уровню сервиса.",
+                    "Москва, Тверской бульвар, 26А",
+                    55.76495,
+                    37.60442,
+                    "+7-495-000-00-01",
+                    task.getQuery(),
+                    4,
+                    "restaurant",
+                    Map.of(
+                            "parking", "false",
+                            "wifi", "true"
+                    ),
+                    List.of(),
+                    List.of(media)
+            );
+
+            found++;
+            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+                created++;
+            }
+
+            task.setTotalPoiFound(found);
+            task.setTotalPoiCreated(created);
+            task.setTotalPoiUpdated(updated);
+
+        } catch (Exception ex) {
+            throw new RuntimeException("2GIS import failed: " + ex.getMessage(), ex);
         }
     }
 
     private void importFromBooking(DataImportTask task, Long userId) {
         log.info("Importing from Booking.com: {}", task.getQuery());
-        // Implementation for Booking.com import
+
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
+        try {
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for Booking import");
+            }
+
+            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
+                    task.getCityId(),
+                    "ru",
+                    "hotel",
+                    "BOOKING",
+                    task.getQuery(),
+                    null,
+                    "Тестовый объект Booking",
+                    "Описание объекта размещения, полученного из Booking. Используется как временный payload до подключения реального источника.",
+                    "Неизвестный адрес",
+                    55.751244,
+                    37.618423,
+                    null,
+                    task.getQuery(),
+                    3,
+                    "hotel",
+                    Map.of("wifi", "true"),
+                    List.of(),
+                    List.of()
+            );
+
+            found++;
+            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+                created++;
+            }
+
+            task.setTotalPoiFound(found);
+            task.setTotalPoiCreated(created);
+            task.setTotalPoiUpdated(updated);
+
+        } catch (Exception ex) {
+            throw new RuntimeException("Booking import failed: " + ex.getMessage(), ex);
+        }
     }
 
     private void importManualData(DataImportTask task, Long userId) {
         log.info("Importing manual data: {}", task.getQuery());
-        // Implementation for manual data import (CSV, JSON, etc.)
+
+        int found = 0;
+        int created = 0;
+        int updated = 0;
+
+        try {
+            if (task.getCityId() == null) {
+                throw new IllegalArgumentException("City ID is required for manual import");
+            }
+
+            MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
+                    task.getCityId(),
+                    "ru",
+                    "landmark",
+                    "MANUAL",
+                    task.getQuery(),
+                    null,
+                    "Ручной объект",
+                    task.getQuery(),
+                    "Адрес не указан",
+                    55.751244,
+                    37.618423,
+                    null,
+                    null,
+                    0,
+                    "landmark",
+                    Map.of(),
+                    List.of(),
+                    List.of()
+            );
+
+            found++;
+            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+                created++;
+            }
+
+            task.setTotalPoiFound(found);
+            task.setTotalPoiCreated(created);
+            task.setTotalPoiUpdated(updated);
+
+        } catch (Exception ex) {
+            throw new RuntimeException("Manual import failed: " + ex.getMessage(), ex);
+        }
     }
 
-    private int createSamplePois(Long cityId, Long userId, String poiType) {
-        // This is a sample implementation
-        // In real application, you would parse real data from API responses
+    private boolean processMlEnrichmentAndCreatePoi(
+            DataImportTask task,
+            Long userId,
+            MlEnrichRawRequest enrichRequest
+    ) {
+        MlEnrichResponse enrichResponse = mlPoiWorkerClient.enrichRaw(enrichRequest);
 
-        log.debug("Creating sample POIs for city: {}, type: {}", cityId, poiType);
-        return 3; // Return number of created POIs
+        if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
+            throw new RuntimeException("Invalid ML enrich response");
+        }
+
+        if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
+            log.warn("POI rejected by ML. taskId={}, errors={}, warnings={}",
+                    task.getId(),
+                    enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
+                    enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
+            return false;
+        }
+
+        var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
+        createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
+        var createdPoi = poiService.createPoi(createRequest, userId);
+
+        if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+            poiService.verifyPoiInternal(createdPoi.getId());
+        }
+
+        log.info("POI imported successfully. taskId={}, poiId={}, statusRecommendation={}",
+                task.getId(),
+                createdPoi.getId(),
+                enrichResponse.getStatusRecommendation());
+
+        return true;
     }
 
     private Mono<JsonNode> fetchDataFromApi(String apiUrl, String apiKey) {
