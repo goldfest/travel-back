@@ -94,6 +94,8 @@ services:
         condition: service_started
     ports:
       - "8087:8087"
+    env_file:
+      - .env
     environment:
       SPRING_PROFILES_ACTIVE: docker
 
@@ -106,6 +108,8 @@ services:
 
       POI_SERVICE_URL: http://poi-service:8081/api/poi
       AUTH_SERVICE_URL: http://auth-service:8084/api
+
+      YANDEX_ROUTING_API_KEY: ${YANDEX_ROUTING_API_KEY}
     restart: unless-stopped
     networks: [travel-net]
 

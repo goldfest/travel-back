@@ -124,6 +124,112 @@ CREATE TRIGGER update_route_points_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- =========================
+-- Кэш геометрии маршрута по дням
+-- =========================
+CREATE TABLE IF NOT EXISTS route_day_paths (
+                                               id BIGSERIAL PRIMARY KEY,
+
+                                               route_day_id BIGINT NOT NULL UNIQUE,
+
+                                               provider VARCHAR(50) NOT NULL DEFAULT 'YANDEX',
+    transport_mode VARCHAR(16) NOT NULL
+    CHECK (transport_mode IN ('WALK', 'PUBLIC_TRANSPORT', 'CAR', 'MIXED')),
+
+    geometry_source VARCHAR(30) NOT NULL DEFAULT 'ROADS'
+    CHECK (geometry_source IN ('ROADS', 'STRAIGHT', 'FALLBACK')),
+
+    distance_km NUMERIC(8,2),
+    duration_min INTEGER,
+
+    polyline_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+    built_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_route_day_paths_route_day
+    FOREIGN KEY (route_day_id) REFERENCES route_days(id) ON DELETE CASCADE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_route_day_paths_route_day_id
+    ON route_day_paths(route_day_id);
+
+CREATE INDEX IF NOT EXISTS idx_route_day_paths_transport_mode
+    ON route_day_paths(transport_mode);
+
+
+-- =========================
+-- Кэш геометрии сегментов между соседними точками
+-- =========================
+CREATE TABLE IF NOT EXISTS route_segment_paths (
+                                                   id BIGSERIAL PRIMARY KEY,
+
+                                                   route_day_id BIGINT NOT NULL,
+                                                   from_route_point_id BIGINT NOT NULL,
+                                                   to_route_point_id BIGINT NOT NULL,
+
+                                                   segment_order SMALLINT NOT NULL,
+
+                                                   provider VARCHAR(50) NOT NULL DEFAULT 'YANDEX',
+    transport_mode VARCHAR(16) NOT NULL
+    CHECK (transport_mode IN ('WALK', 'PUBLIC_TRANSPORT', 'CAR', 'MIXED')),
+
+    geometry_source VARCHAR(30) NOT NULL DEFAULT 'ROADS'
+    CHECK (geometry_source IN ('ROADS', 'STRAIGHT', 'FALLBACK')),
+
+    status VARCHAR(20) NOT NULL DEFAULT 'OK'
+    CHECK (status IN ('OK', 'NOT_FOUND', 'PARTIAL', 'ERROR')),
+
+    distance_km NUMERIC(8,2),
+    duration_min INTEGER,
+
+    polyline_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_route_segment_paths_route_day
+    FOREIGN KEY (route_day_id) REFERENCES route_days(id) ON DELETE CASCADE,
+
+    CONSTRAINT fk_route_segment_paths_from_point
+    FOREIGN KEY (from_route_point_id) REFERENCES route_points(id) ON DELETE CASCADE,
+
+    CONSTRAINT fk_route_segment_paths_to_point
+    FOREIGN KEY (to_route_point_id) REFERENCES route_points(id) ON DELETE CASCADE,
+
+    CONSTRAINT uq_route_segment_pair
+    UNIQUE (route_day_id, from_route_point_id, to_route_point_id)
+    );
+
+CREATE INDEX IF NOT EXISTS idx_route_segment_paths_route_day_id
+    ON route_segment_paths(route_day_id);
+
+CREATE INDEX IF NOT EXISTS idx_route_segment_paths_segment_order
+    ON route_segment_paths(segment_order);
+
+CREATE INDEX IF NOT EXISTS idx_route_segment_paths_from_to
+    ON route_segment_paths(from_route_point_id, to_route_point_id);
+
+
+-- =========================
+-- updated_at trigger
+-- =========================
+DROP TRIGGER IF EXISTS update_route_day_paths_updated_at ON route_day_paths;
+CREATE TRIGGER update_route_day_paths_updated_at
+    BEFORE UPDATE ON route_day_paths
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_route_segment_paths_updated_at ON route_segment_paths;
+CREATE TRIGGER update_route_segment_paths_updated_at
+    BEFORE UPDATE ON route_segment_paths
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE route_day_paths IS 'Кэш геометрии маршрута по дорогам для одного дня';
+COMMENT ON TABLE route_segment_paths IS 'Кэш геометрии отдельных сегментов между соседними точками маршрута';
+
 COMMENT ON TABLE routes IS 'Хранит пользовательские маршруты путешествий';
 COMMENT ON TABLE route_days IS 'Хранит структуру маршрута по дням';
 COMMENT ON TABLE route_points IS 'Хранит точки маршрута с порядком посещения';

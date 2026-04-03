@@ -67,3 +67,13 @@ logging:
     com.travelapp.route: DEBUG
     org.springframework.web: INFO
     org.hibernate.SQL: DEBUG
+
+routing:
+  yandex:
+    enabled: true
+    api-key: ${YANDEX_ROUTING_API_KEY}
+    base-url: https://api.routing.yandex.net
+    lang: ru_RU
+    traffic: disabled
+    connect-timeout-seconds: 5
+    read-timeout-seconds: 20

@@ -5,6 +5,6 @@ import java.util.List;
 
 @Data
 public class RoutePolylineDto {
-    private String source; // STRAIGHT
+    private String source; // STRAIGHT / FALLBACK / STRAIGHT
     private List<LatLngDto> coordinates;
 }
