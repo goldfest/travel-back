@@ -4,7 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-osm-data
+osm-data/
 ### STS ###
 .apt_generated
 .classpath
