@@ -4,10 +4,9 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
-import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -57,8 +56,8 @@ public class RouteSegmentPath {
     @Column(name = "duration_min")
     private Integer durationMin;
 
-    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "polyline_json", columnDefinition = "jsonb", nullable = false)
+    @ColumnTransformer(write = "?::jsonb")
     private String polylineJson = "[]";
 
     @CreationTimestamp

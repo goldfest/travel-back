@@ -16,6 +16,7 @@ import com.travelapp.route.service.GraphRoutingService;
 import com.travelapp.route.service.PoiSnapService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -44,25 +45,38 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND);
         }
 
+        if (sameLocation(from, to)) {
+            RoutingSegmentResult same = new RoutingSegmentResult();
+            same.setFromRoutePointId(from.getRoutePointId());
+            same.setToRoutePointId(to.getRoutePointId());
+            same.setProvider(PROVIDER);
+            same.setGeometrySource(SOURCE_GRAPH);
+            same.setStatus(STATUS_OK);
+            same.setCoordinates(List.of(new LatLngDto(from.getLatitude(), from.getLongitude())));
+            same.setDistanceKm(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            same.setDurationMin(0);
+            return same;
+        }
+
         Optional<PoiGraphBinding> fromBinding = poiSnapService.snapPoint(cityId, from);
         Optional<PoiGraphBinding> toBinding = poiSnapService.snapPoint(cityId, to);
         if (fromBinding.isEmpty() || toBinding.isEmpty()) {
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND);
         }
 
-        Map<Long, List<EdgeState>> graph = buildAdjacency(cityId, transportMode);
-        if (graph.isEmpty()) {
+        RoadGraph graph = loadGraph(cityId, transportMode);
+        if (graph.adjacency().isEmpty()) {
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND);
         }
 
-        PathResult path = aStar(
+        PathResult path = shortestPath(
                 fromBinding.get().getNearestNode(),
                 toBinding.get().getNearestNode(),
                 graph,
                 transportMode
         );
 
-        if (path == null || path.coordinates().size() < 2) {
+        if (path == null || path.coordinates().isEmpty()) {
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND);
         }
 
@@ -91,14 +105,41 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         double[][] distance = new double[n][n];
         int[][] duration = new int[n][n];
 
+        Map<Long, PoiGraphBinding> bindings = poiSnapService.snapPoints(cityId, points);
+        RoadGraph graph = loadGraph(cityId, transportMode);
+
         for (int i = 0; i < n; i++) {
+            RoutingPoint originPoint = points.get(i);
+            Long originKey = pointKey(originPoint);
+            PoiGraphBinding originBinding = bindings.get(originKey);
+
+            if (originBinding == null) {
+                fillFallbackRow(points, transportMode, distance, duration, i);
+                continue;
+            }
+
+            Map<Long, PathMeta> shortest = shortestPathTree(originBinding.getNearestNode(), graph, transportMode);
+
             for (int j = 0; j < n; j++) {
                 if (i == j) {
                     continue;
                 }
-                RoutingSegmentResult seg = buildSegment(cityId, points.get(i), points.get(j), transportMode);
-                distance[i][j] = seg.getDistanceKm() == null ? 0.0 : seg.getDistanceKm().doubleValue();
-                duration[i][j] = seg.getDurationMin() == null ? 0 : seg.getDurationMin();
+
+                RoutingPoint targetPoint = points.get(j);
+                PoiGraphBinding targetBinding = bindings.get(pointKey(targetPoint));
+                if (targetBinding == null) {
+                    applyFallback(points.get(i), targetPoint, transportMode, distance, duration, i, j);
+                    continue;
+                }
+
+                PathMeta meta = shortest.get(targetBinding.getNearestNode().getId());
+                if (meta == null) {
+                    applyFallback(points.get(i), targetPoint, transportMode, distance, duration, i, j);
+                    continue;
+                }
+
+                distance[i][j] = meta.distanceKm();
+                duration[i][j] = Math.max(1, (int) Math.ceil(meta.durationSec() / 60.0));
             }
         }
 
@@ -107,9 +148,10 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         return result;
     }
 
-    private Map<Long, List<EdgeState>> buildAdjacency(Long cityId, Route.TransportMode transportMode) {
+    @Cacheable(cacheNames = "roadGraphByCityAndMode", key = "#cityId + '_' + #transportMode.name()")
+    public RoadGraph loadGraph(Long cityId, Route.TransportMode transportMode) {
         List<RoadEdge> edges = roadEdgeRepository.findByCityId(cityId);
-        Map<Long, List<EdgeState>> graph = new HashMap<>();
+        Map<Long, List<EdgeState>> adjacency = new HashMap<>();
 
         for (RoadEdge edge : edges) {
             if (!isAllowed(edge, transportMode)) {
@@ -120,28 +162,26 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
             double distanceKm = edge.getLengthM() == null ? estimateDistance(coords) : edge.getLengthM() / 1000.0;
             int durationSec = resolveDurationSec(edge, transportMode, distanceKm);
 
-            graph.computeIfAbsent(edge.getFromNode().getId(), k -> new ArrayList<>())
+            adjacency.computeIfAbsent(edge.getFromNode().getId(), k -> new ArrayList<>())
                     .add(new EdgeState(edge.getToNode(), distanceKm, durationSec, coords));
 
             if (Boolean.TRUE.equals(edge.getBidirectional())) {
-                List<LatLngDto> reversed = reverse(coords);
-                graph.computeIfAbsent(edge.getToNode().getId(), k -> new ArrayList<>())
-                        .add(new EdgeState(edge.getFromNode(), distanceKm, durationSec, reversed));
+                adjacency.computeIfAbsent(edge.getToNode().getId(), k -> new ArrayList<>())
+                        .add(new EdgeState(edge.getFromNode(), distanceKm, durationSec, reverse(coords)));
             }
         }
 
-        return graph;
+        return new RoadGraph(cityId, transportMode, adjacency);
     }
 
-    private PathResult aStar(RoadNode start, RoadNode goal, Map<Long, List<EdgeState>> graph, Route.TransportMode mode) {
+    private PathResult shortestPath(RoadNode start, RoadNode goal, RoadGraph graph, Route.TransportMode mode) {
         Map<Long, Double> gScore = new HashMap<>();
         Map<Long, StateRef> prev = new HashMap<>();
         PriorityQueue<NodeState> open = new PriorityQueue<>(Comparator.comparingDouble(NodeState::fScore));
+        Set<Long> closed = new HashSet<>();
 
         gScore.put(start.getId(), 0.0);
         open.add(new NodeState(start, heuristic(start, goal, mode), 0.0));
-
-        Set<Long> closed = new HashSet<>();
 
         while (!open.isEmpty()) {
             NodeState current = open.poll();
@@ -153,11 +193,10 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
                 return reconstruct(goal, prev, gScore.get(goal.getId()));
             }
 
-            for (EdgeState edge : graph.getOrDefault(current.node().getId(), List.of())) {
+            for (EdgeState edge : graph.adjacency().getOrDefault(current.node().getId(), List.of())) {
                 if (closed.contains(edge.to().getId())) {
                     continue;
                 }
-
                 double tentative = gScore.getOrDefault(current.node().getId(), Double.POSITIVE_INFINITY) + edge.durationSec();
                 if (tentative < gScore.getOrDefault(edge.to().getId(), Double.POSITIVE_INFINITY)) {
                     gScore.put(edge.to().getId(), tentative);
@@ -168,6 +207,38 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         }
 
         return null;
+    }
+
+    private Map<Long, PathMeta> shortestPathTree(RoadNode start, RoadGraph graph, Route.TransportMode mode) {
+        Map<Long, Double> duration = new HashMap<>();
+        Map<Long, Double> distance = new HashMap<>();
+        PriorityQueue<NodeState> queue = new PriorityQueue<>(Comparator.comparingDouble(NodeState::gScore));
+
+        duration.put(start.getId(), 0.0);
+        distance.put(start.getId(), 0.0);
+        queue.add(new NodeState(start, 0.0, 0.0));
+
+        while (!queue.isEmpty()) {
+            NodeState current = queue.poll();
+            double known = duration.getOrDefault(current.node().getId(), Double.POSITIVE_INFINITY);
+            if (current.gScore() > known) {
+                continue;
+            }
+
+            for (EdgeState edge : graph.adjacency().getOrDefault(current.node().getId(), List.of())) {
+                double candidateDuration = current.gScore() + edge.durationSec();
+                if (candidateDuration < duration.getOrDefault(edge.to().getId(), Double.POSITIVE_INFINITY)) {
+                    duration.put(edge.to().getId(), candidateDuration);
+                    distance.put(edge.to().getId(), distance.getOrDefault(current.node().getId(), 0.0) + edge.distanceKm());
+                    queue.add(new NodeState(edge.to(), candidateDuration, candidateDuration));
+                }
+            }
+        }
+
+        Map<Long, PathMeta> result = new HashMap<>();
+        duration.forEach((nodeId, durationSec) -> result.put(nodeId,
+                new PathMeta(distance.getOrDefault(nodeId, 0.0), (int) Math.round(durationSec))));
+        return result;
     }
 
     private PathResult reconstruct(RoadNode goal, Map<Long, StateRef> prev, double totalDurationSec) {
@@ -187,8 +258,41 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         for (List<LatLngDto> chunk : chunks) {
             mergeCoordinates(merged, chunk);
         }
-
         return new PathResult(merged, totalDistance, (int) Math.round(totalDurationSec));
+    }
+
+    private void fillFallbackRow(List<RoutingPoint> points,
+                                 Route.TransportMode transportMode,
+                                 double[][] distance,
+                                 int[][] duration,
+                                 int row) {
+        for (int j = 0; j < points.size(); j++) {
+            if (row == j) {
+                continue;
+            }
+            applyFallback(points.get(row), points.get(j), transportMode, distance, duration, row, j);
+        }
+    }
+
+    private void applyFallback(RoutingPoint from,
+                               RoutingPoint to,
+                               Route.TransportMode transportMode,
+                               double[][] distance,
+                               int[][] duration,
+                               int i,
+                               int j) {
+        RoutingSegmentResult seg = fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND);
+        distance[i][j] = seg.getDistanceKm() == null ? 0.0 : seg.getDistanceKm().doubleValue();
+        duration[i][j] = seg.getDurationMin() == null ? 0 : seg.getDurationMin();
+    }
+
+    private boolean sameLocation(RoutingPoint from, RoutingPoint to) {
+        return Double.compare(from.getLatitude(), to.getLatitude()) == 0
+                && Double.compare(from.getLongitude(), to.getLongitude()) == 0;
+    }
+
+    private Long pointKey(RoutingPoint point) {
+        return point.getPoiId() != null ? point.getPoiId() : point.getRoutePointId();
     }
 
     private double heuristic(RoadNode from, RoadNode to, Route.TransportMode mode) {
@@ -196,8 +300,7 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
                 new double[]{from.getLatitude(), from.getLongitude()},
                 new double[]{to.getLatitude(), to.getLongitude()}
         );
-        int sec = distanceCalculationService.calculateTravelTime(km, mode.name()) * 60;
-        return Math.max(sec * 0.65, 1.0);
+        return Math.max(distanceCalculationService.calculateTravelTime(km, mode.name()) * 60 * 0.65, 1.0);
     }
 
     private RoutingSegmentResult fallbackSegment(RoutingPoint from, RoutingPoint to, Route.TransportMode transportMode, String status) {
@@ -305,8 +408,10 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         }
     }
 
+    public record RoadGraph(Long cityId, Route.TransportMode transportMode, Map<Long, List<EdgeState>> adjacency) {}
     private record NodeState(RoadNode node, double fScore, double gScore) {}
     private record StateRef(RoadNode previousNode, EdgeState edge) {}
-    private record EdgeState(RoadNode to, double distanceKm, int durationSec, List<LatLngDto> coordinates) {}
+    public record EdgeState(RoadNode to, double distanceKm, int durationSec, List<LatLngDto> coordinates) {}
+    private record PathMeta(double distanceKm, int durationSec) {}
     private record PathResult(List<LatLngDto> coordinates, double distanceKm, int durationSec) {}
 }

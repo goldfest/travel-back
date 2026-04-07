@@ -5,19 +5,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
 
 public interface RoadNodeRepository extends JpaRepository<RoadNode, Long> {
-
-    List<RoadNode> findByCityId(Long cityId);
 
     @Query(value = """
             SELECT rn.*
             FROM road_nodes rn
             WHERE rn.city_id = :cityId
-            ORDER BY ((rn.latitude - :latitude) * (rn.latitude - :latitude)
-                   +  (rn.longitude - :longitude) * (rn.longitude - :longitude)) ASC
+            ORDER BY rn.geom <-> ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)
             LIMIT 1
             """, nativeQuery = true)
     Optional<RoadNode> findNearestNode(

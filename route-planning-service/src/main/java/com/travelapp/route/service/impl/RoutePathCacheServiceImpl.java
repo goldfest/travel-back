@@ -59,7 +59,7 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                     .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
 
             List<RoutingPoint> routingPoints = points.stream()
-                    .map(p -> new RoutingPoint(p.getId(), p.getPoiLatitude(), p.getPoiLongitude()))
+                    .map(p -> new RoutingPoint(p.getId(), p.getPoiId(), p.getPoiLatitude(), p.getPoiLongitude()))
                     .toList();
 
             RoutingDayResult result = routingProvider.buildDayRoute(route.getCityId(), routingPoints, route.getTransportMode());

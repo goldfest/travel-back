@@ -4,8 +4,7 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
+import org.hibernate.annotations.ColumnTransformer;
 
 @Entity
 @Table(name = "road_edges")
@@ -42,7 +41,7 @@ public class RoadEdge {
     private Boolean mixedAllowed = true;
 
     @Column(name = "public_transport_allowed", nullable = false)
-    private Boolean publicTransportAllowed = true;
+    private Boolean publicTransportAllowed = false;
 
     @Column(name = "walk_time_sec")
     private Integer walkTimeSec;
@@ -59,8 +58,8 @@ public class RoadEdge {
     @Column(name = "bidirectional", nullable = false)
     private Boolean bidirectional = true;
 
-    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "polyline_json", columnDefinition = "jsonb", nullable = false)
+    @ColumnTransformer(write = "?::jsonb")
     private String polylineJson = "[]";
 
     @Column(name = "source", nullable = false, length = 30)
