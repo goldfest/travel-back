@@ -17,8 +17,13 @@ public class GraphVersionServiceImpl implements GraphVersionService {
     @Override
     @Transactional(readOnly = true)
     public Long getRequiredActiveVersionId(Long cityId) {
+        return getActiveVersionOrThrow(cityId).getId();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CityGraphVersion getActiveVersionOrThrow(Long cityId) {
         return repository.findFirstByCityIdAndStatusOrderByVersionNoDesc(cityId, CityGraphVersion.Status.ACTIVE)
-                .map(CityGraphVersion::getId)
                 .orElseThrow(() -> new ResourceNotFoundException("Для города " + cityId + " не подготовлен граф дорог"));
     }
 }

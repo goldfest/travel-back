@@ -147,11 +147,14 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         return result;
     }
 
-    @Cacheable(cacheNames = "roadGraphByCityAndMode", key = "#cityId + '_' + #transportMode.name()")
     public RoadGraph loadGraph(Long cityId, Route.TransportMode transportMode) {
-        CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(cityId);
+        Long graphVersionId = graphVersionService.getRequiredActiveVersionId(cityId);
+        return loadGraphByVersion(cityId, graphVersionId, transportMode);
+    }
 
-        List<RoadEdge> edges = roadEdgeRepository.findByGraphVersion_Id(activeVersion.getId());
+    @Cacheable(cacheNames = "roadGraphByCityAndMode", key = "#cityId + '_' + #graphVersionId + '_' + #transportMode.name()")
+    public RoadGraph loadGraphByVersion(Long cityId, Long graphVersionId, Route.TransportMode transportMode) {
+        List<RoadEdge> edges = roadEdgeRepository.findByGraphVersion_Id(graphVersionId);
         Map<Long, List<EdgeState>> adjacency = new HashMap<>();
 
         for (RoadEdge edge : edges) {

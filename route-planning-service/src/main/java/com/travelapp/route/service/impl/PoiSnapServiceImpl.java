@@ -6,6 +6,7 @@ import com.travelapp.route.model.entity.RoadNode;
 import com.travelapp.route.repository.PoiGraphBindingRepository;
 import com.travelapp.route.repository.RoadNodeRepository;
 import com.travelapp.route.service.DistanceCalculationService;
+import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.PoiSnapService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ public class PoiSnapServiceImpl implements PoiSnapService {
 
     private final RoadNodeRepository roadNodeRepository;
     private final PoiGraphBindingRepository bindingRepository;
+    private final GraphVersionService graphVersionService;
     private final DistanceCalculationService distanceCalculationService;
 
     @Override
@@ -33,10 +35,12 @@ public class PoiSnapServiceImpl implements PoiSnapService {
             return Optional.empty();
         }
 
-        // Стабильный кэш используем только для реального POI, а не для route_point.
+        Long graphVersionId = graphVersionService.getRequiredActiveVersionId(cityId);
+
         if (point.getPoiId() != null) {
-            Optional<PoiGraphBinding> cached = bindingRepository.findById(point.getPoiId())
-                    .filter(binding -> Objects.equals(binding.getCityId(), cityId));
+            Optional<PoiGraphBinding> cached = bindingRepository
+                    .findByPoiIdAndGraphVersionId(point.getPoiId(), graphVersionId);
+
             if (cached.isPresent()) {
                 return cached;
             }
@@ -56,13 +60,12 @@ public class PoiSnapServiceImpl implements PoiSnapService {
         PoiGraphBinding binding = new PoiGraphBinding();
         binding.setPoiId(point.getPoiId());
         binding.setCityId(cityId);
+        binding.setGraphVersion(node.getGraphVersion());
         binding.setNearestNode(node);
         binding.setSnappedLatitude(node.getLatitude());
         binding.setSnappedLongitude(node.getLongitude());
         binding.setSnapDistanceM(snapDistanceKm * 1000.0);
 
-        // Временную точку маршрута не сохраняем в таблицу poi_graph_bindings,
-        // иначе route_points.id начнёт загрязнять постоянный кэш по POI.
         if (point.getPoiId() == null) {
             return Optional.of(binding);
         }
@@ -78,15 +81,18 @@ public class PoiSnapServiceImpl implements PoiSnapService {
             return result;
         }
 
+        Long graphVersionId = graphVersionService.getRequiredActiveVersionId(cityId);
+
         List<Long> poiIds = points.stream()
                 .map(RoutingPoint::getPoiId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
 
-        bindingRepository.findByPoiIdIn(poiIds).stream()
-                .filter(binding -> Objects.equals(binding.getCityId(), cityId))
-                .forEach(binding -> result.put(binding.getPoiId(), binding));
+        if (!poiIds.isEmpty()) {
+            bindingRepository.findByPoiIdInAndGraphVersionId(poiIds, graphVersionId)
+                    .forEach(binding -> result.put(binding.getPoiId(), binding));
+        }
 
         for (RoutingPoint point : points) {
             Long key = point.getPoiId() != null ? point.getPoiId() : point.getRoutePointId();
@@ -99,9 +105,10 @@ public class PoiSnapServiceImpl implements PoiSnapService {
         return result;
     }
 
-    @Override
     @Transactional(readOnly = true)
+    @Override
     public Optional<RoadNode> findNearestNode(Long cityId, double latitude, double longitude) {
-        return roadNodeRepository.findNearestNode(cityId, latitude, longitude);
+        Long graphVersionId = graphVersionService.getRequiredActiveVersionId(cityId);
+        return roadNodeRepository.findNearestNode(cityId, graphVersionId, latitude, longitude);
     }
 }
