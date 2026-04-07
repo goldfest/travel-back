@@ -11,10 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +22,7 @@ public class RouteOptimizationService {
     private final RoutingProvider routingProvider;
 
     public Route optimizeRoute(Route route, String optimizationMode) {
-        String mode = optimizationMode == null ? "TIME" : optimizationMode.toUpperCase(Locale.ROOT);
+        String mode = normalizeMode(optimizationMode);
 
         for (RouteDay day : route.getRouteDays()) {
             if (day.getRoutePoints() == null || day.getRoutePoints().size() <= 1) {
@@ -38,10 +35,21 @@ public class RouteOptimizationService {
 
             hydrateCoordinates(points);
 
-            List<RoutePoint> reordered = switch (mode) {
-                case "DISTANCE", "TIME", "SCENIC", "RATING" -> optimizeWithMatrix(points, route.getTransportMode(), mode);
-                default -> optimizeWithMatrix(points, route.getTransportMode(), "TIME");
-            };
+            List<RoutingPoint> routingPoints = points.stream()
+                    .map(point -> new RoutingPoint(
+                            point.getId(),
+                            safeLatitude(point),
+                            safeLongitude(point)
+                    ))
+                    .toList();
+
+            TravelMatrixResult matrix = routingProvider.buildMatrix(route.getCityId(), routingPoints, route.getTransportMode());
+            int[] order = buildBestOrder(matrix, mode);
+
+            List<RoutePoint> reordered = new ArrayList<>(points.size());
+            for (int index : order) {
+                reordered.add(points.get(index));
+            }
 
             day.getRoutePoints().clear();
             day.getRoutePoints().addAll(reordered);
@@ -53,64 +61,163 @@ public class RouteOptimizationService {
         return route;
     }
 
-    private List<RoutePoint> optimizeWithMatrix(List<RoutePoint> points, Route.TransportMode transportMode, String mode) {
-        List<RoutingPoint> routingPoints = points.stream()
-                .map(point -> new RoutingPoint(
-                        point.getId(),
-                        safeLatitude(point),
-                        safeLongitude(point)
-                ))
-                .toList();
-
-        TravelMatrixResult matrix = routingProvider.buildMatrix(routingPoints, transportMode);
-        List<Integer> order = nearestNeighborOrder(matrix, mode);
-
-        List<RoutePoint> result = new ArrayList<>();
-        for (Integer index : order) {
-            result.add(points.get(index));
+    private int[] buildBestOrder(TravelMatrixResult matrix, String mode) {
+        int n = matrix.getDurationMin().length;
+        if (n <= 2) {
+            return buildIdentity(n);
         }
-        return result;
+        if (n <= 9) {
+            return exactHeldKarp(matrix, mode);
+        }
+        int[] greedy = nearestNeighborOrder(matrix, mode);
+        return twoOpt(greedy, matrix, mode);
     }
 
-    private List<Integer> nearestNeighborOrder(TravelMatrixResult matrix, String optimizationMode) {
+    private int[] exactHeldKarp(TravelMatrixResult matrix, String mode) {
+        int n = matrix.getDurationMin().length;
+        int size = 1 << n;
+        double[][] dp = new double[size][n];
+        int[][] parent = new int[size][n];
+        for (double[] row : dp) {
+            Arrays.fill(row, Double.POSITIVE_INFINITY);
+        }
+        for (int[] row : parent) {
+            Arrays.fill(row, -1);
+        }
+
+        dp[1][0] = 0.0;
+
+        for (int mask = 1; mask < size; mask++) {
+            if ((mask & 1) == 0) {
+                continue;
+            }
+            for (int last = 0; last < n; last++) {
+                if ((mask & (1 << last)) == 0 || Double.isInfinite(dp[mask][last])) {
+                    continue;
+                }
+                for (int next = 0; next < n; next++) {
+                    if ((mask & (1 << next)) != 0) {
+                        continue;
+                    }
+                    int nextMask = mask | (1 << next);
+                    double candidate = dp[mask][last] + travelCost(matrix, last, next, mode);
+                    if (candidate < dp[nextMask][next]) {
+                        dp[nextMask][next] = candidate;
+                        parent[nextMask][next] = last;
+                    }
+                }
+            }
+        }
+
+        int fullMask = size - 1;
+        int bestLast = 0;
+        double bestCost = Double.POSITIVE_INFINITY;
+        for (int last = 0; last < n; last++) {
+            if (dp[fullMask][last] < bestCost) {
+                bestCost = dp[fullMask][last];
+                bestLast = last;
+            }
+        }
+
+        int[] order = new int[n];
+        int mask = fullMask;
+        int cursor = bestLast;
+        for (int pos = n - 1; pos >= 0; pos--) {
+            order[pos] = cursor;
+            int previous = parent[mask][cursor];
+            mask ^= 1 << cursor;
+            cursor = previous;
+            if (cursor == -1 && pos > 0) {
+                cursor = 0;
+            }
+        }
+        return order;
+    }
+
+    private int[] nearestNeighborOrder(TravelMatrixResult matrix, String mode) {
         int n = matrix.getDurationMin().length;
         boolean[] visited = new boolean[n];
-        List<Integer> order = new ArrayList<>();
-
+        int[] order = new int[n];
         int current = 0;
         visited[current] = true;
-        order.add(current);
+        order[0] = current;
 
         for (int step = 1; step < n; step++) {
             int bestNext = -1;
-            double bestCost = Double.MAX_VALUE;
-
+            double bestCost = Double.POSITIVE_INFINITY;
             for (int candidate = 0; candidate < n; candidate++) {
                 if (visited[candidate]) {
                     continue;
                 }
-
-                double cost = switch (optimizationMode.toUpperCase(Locale.ROOT)) {
-                    case "DISTANCE" -> matrix.getDistanceKm()[current][candidate];
-                    case "TIME", "SCENIC", "RATING" -> matrix.getDurationMin()[current][candidate];
-                    default -> matrix.getDurationMin()[current][candidate];
-                };
-
+                double cost = travelCost(matrix, current, candidate, mode);
                 if (cost < bestCost) {
                     bestCost = cost;
                     bestNext = candidate;
                 }
             }
-
             if (bestNext == -1) {
                 break;
             }
-
             visited[bestNext] = true;
-            order.add(bestNext);
+            order[step] = bestNext;
             current = bestNext;
         }
+        return order;
+    }
 
+    private int[] twoOpt(int[] initialOrder, TravelMatrixResult matrix, String mode) {
+        int[] best = Arrays.copyOf(initialOrder, initialOrder.length);
+        boolean improved = true;
+
+        while (improved) {
+            improved = false;
+            for (int i = 1; i < best.length - 1; i++) {
+                for (int k = i + 1; k < best.length; k++) {
+                    int[] candidate = twoOptSwap(best, i, k);
+                    if (routeCost(candidate, matrix, mode) + 1e-6 < routeCost(best, matrix, mode)) {
+                        best = candidate;
+                        improved = true;
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private int[] twoOptSwap(int[] order, int i, int k) {
+        int[] result = new int[order.length];
+        System.arraycopy(order, 0, result, 0, i);
+        for (int c = i; c <= k; c++) {
+            result[c] = order[k - (c - i)];
+        }
+        if (k + 1 < order.length) {
+            System.arraycopy(order, k + 1, result, k + 1, order.length - (k + 1));
+        }
+        return result;
+    }
+
+    private double routeCost(int[] order, TravelMatrixResult matrix, String mode) {
+        double cost = 0.0;
+        for (int i = 1; i < order.length; i++) {
+            cost += travelCost(matrix, order[i - 1], order[i], mode);
+        }
+        return cost;
+    }
+
+    private double travelCost(TravelMatrixResult matrix, int from, int to, String mode) {
+        return switch (mode) {
+            case "DISTANCE" -> matrix.getDistanceKm()[from][to];
+            case "TIME" -> matrix.getDurationMin()[from][to];
+            default -> matrix.getDurationMin()[from][to];
+        };
+    }
+
+    private int[] buildIdentity(int size) {
+        int[] order = new int[size];
+        for (int i = 0; i < size; i++) {
+            order[i] = i;
+        }
         return order;
     }
 
@@ -119,13 +226,11 @@ public class RouteOptimizationService {
             if (point.getPoiLatitude() != null && point.getPoiLongitude() != null) {
                 continue;
             }
-
             try {
                 PoiResponse poi = poiClient.getPoiById(point.getPoiId());
                 if (poi != null && poi.getLatitude() != null && poi.getLongitude() != null) {
                     point.setPoiLatitude(poi.getLatitude());
                     point.setPoiLongitude(poi.getLongitude());
-
                     if (point.getPoiName() == null) {
                         point.setPoiName(poi.getName());
                         point.setPoiAddress(poi.getAddress());
@@ -136,6 +241,17 @@ public class RouteOptimizationService {
                 log.warn("Failed to load coordinates for POI {} from poi-service", point.getPoiId(), e);
             }
         }
+    }
+
+    private String normalizeMode(String optimizationMode) {
+        if (optimizationMode == null || optimizationMode.isBlank()) {
+            return "TIME";
+        }
+        String normalized = optimizationMode.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "TIME", "DISTANCE" -> normalized;
+            default -> "TIME";
+        };
     }
 
     private double safeLatitude(RoutePoint point) {
@@ -151,14 +267,10 @@ public class RouteOptimizationService {
     }
 
     private void updateOrderIndices(RouteDay day) {
-        List<RoutePoint> sorted = day.getRoutePoints().stream()
-                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
-                .toList();
-
+        List<RoutePoint> sorted = new ArrayList<>(day.getRoutePoints());
         for (int i = 0; i < sorted.size(); i++) {
             sorted.get(i).setOrderIndex((short) (i + 1));
         }
-
         day.getRoutePoints().sort(Comparator.comparing(RoutePoint::getOrderIndex));
     }
 }

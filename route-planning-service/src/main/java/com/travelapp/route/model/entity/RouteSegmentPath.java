@@ -39,14 +39,14 @@ public class RouteSegmentPath {
     private Short segmentOrder;
 
     @Column(name = "provider", nullable = false, length = 50)
-    private String provider = "YANDEX";
+    private String provider = "INTERNAL_GRAPH";
 
     @Enumerated(EnumType.STRING)
     @Column(name = "transport_mode", nullable = false, length = 16)
     private Route.TransportMode transportMode;
 
     @Column(name = "geometry_source", nullable = false, length = 30)
-    private String geometrySource = "ROADS";
+    private String geometrySource = "GRAPH";
 
     @Column(name = "status", nullable = false, length = 20)
     private String status = "OK";

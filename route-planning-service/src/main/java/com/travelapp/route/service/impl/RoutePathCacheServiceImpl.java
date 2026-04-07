@@ -23,6 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -52,11 +55,14 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 continue;
             }
 
+            Map<Long, RoutePoint> pointMap = points.stream()
+                    .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
+
             List<RoutingPoint> routingPoints = points.stream()
                     .map(p -> new RoutingPoint(p.getId(), p.getPoiLatitude(), p.getPoiLongitude()))
                     .toList();
 
-            RoutingDayResult result = routingProvider.buildDayRoute(routingPoints, route.getTransportMode());
+            RoutingDayResult result = routingProvider.buildDayRoute(route.getCityId(), routingPoints, route.getTransportMode());
 
             RouteDayPath dayPath = new RouteDayPath();
             dayPath.setRouteDay(day);
@@ -73,8 +79,8 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
             for (RoutingSegmentResult seg : result.getSegments()) {
                 RouteSegmentPath entity = new RouteSegmentPath();
                 entity.setRouteDay(day);
-                entity.setFromRoutePoint(points.stream().filter(p -> p.getId().equals(seg.getFromRoutePointId())).findFirst().orElseThrow());
-                entity.setToRoutePoint(points.stream().filter(p -> p.getId().equals(seg.getToRoutePointId())).findFirst().orElseThrow());
+                entity.setFromRoutePoint(pointMap.get(seg.getFromRoutePointId()));
+                entity.setToRoutePoint(pointMap.get(seg.getToRoutePointId()));
                 entity.setSegmentOrder(order++);
                 entity.setTransportMode(route.getTransportMode());
                 entity.setProvider(seg.getProvider());
