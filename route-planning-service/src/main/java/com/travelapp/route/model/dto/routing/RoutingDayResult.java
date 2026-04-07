@@ -12,6 +12,7 @@ public class RoutingDayResult {
     private Integer totalDurationMin;
     private String provider;
     private String geometrySource;
+    private Long graphVersionId;
     private List<LatLngDto> dayCoordinates;
     private List<RoutingSegmentResult> segments;
 }

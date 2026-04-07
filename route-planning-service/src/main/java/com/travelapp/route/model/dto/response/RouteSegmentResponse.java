@@ -13,4 +13,5 @@ public class RouteSegmentResponse {
     private RoutePolylineDto polyline;
     private String provider;
     private String status;
+    private String diagnosticCode;
 }

@@ -55,6 +55,9 @@ public class CityGraphVersion {
     @Column(name = "imported_at")
     private LocalDateTime importedAt;
 
+    @Column(name = "failure_reason", length = 1000)
+    private String failureReason;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

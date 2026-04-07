@@ -19,6 +19,7 @@ import com.travelapp.route.repository.RouteDayRepository;
 import com.travelapp.route.repository.RoutePointRepository;
 import com.travelapp.route.repository.RouteRepository;
 import com.travelapp.route.service.RouteOptimizationService;
+import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.RoutePathCacheService;
 import com.travelapp.route.service.RouteService;
 import lombok.RequiredArgsConstructor;
@@ -50,6 +51,8 @@ public class RouteServiceImpl implements RouteService {
     private final PoiClient poiClient;
     private final RouteOptimizationService optimizationService;
     private final RoutePathCacheService routePathCacheService;
+    private final GraphVersionService graphVersionService;
+    private final RouteGraphPreparationCoordinator routeGraphPreparationCoordinator;
 
     @Override
     @Transactional
@@ -75,6 +78,23 @@ public class RouteServiceImpl implements RouteService {
         }
 
         Route savedRoute = routeRepository.save(route);
+
+        if (!hasAnyPoints(savedRoute)) {
+            RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            log.info("Route created successfully without points cache rebuild: {}", savedRoute.getId());
+            return response;
+        }
+
+        if (!graphVersionService.hasActiveVersion(savedRoute.getCityId())) {
+            savedRoute.setStatus(Route.RouteStatus.GRAPH_PREPARING);
+            savedRoute = routeRepository.save(savedRoute);
+            routeGraphPreparationCoordinator.scheduleAfterCommit(savedRoute.getId(), savedRoute.getCityId());
+
+            RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            response.addAdditionalProperty("buildMessage", "Маршрут строится, подождите");
+            log.info("Route {} saved in GRAPH_PREPARING for city {}", savedRoute.getId(), savedRoute.getCityId());
+            return response;
+        }
 
         routePathCacheService.rebuildRoutePaths(savedRoute.getId());
         savedRoute = routeRepository.findById(savedRoute.getId())

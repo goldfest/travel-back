@@ -8,10 +8,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
-@FeignClient(name = "poi-internal-client", url = "${services.poi.base-url}")
+@FeignClient(name = "poi-service", url = "${services.poi.base-url}")
 public interface InternalPoiClient {
 
-    @GetMapping("/cities/{cityId}/pois")
+    @GetMapping("/internal/cities/{cityId}/pois")
     List<InternalPoiLiteResponse> getCityPois(
             @PathVariable("cityId") Long cityId,
             @RequestParam(value = "onlyVerified", defaultValue = "true") boolean onlyVerified,

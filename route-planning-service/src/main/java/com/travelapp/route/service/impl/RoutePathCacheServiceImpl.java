@@ -6,6 +6,7 @@ import com.travelapp.route.exception.ResourceNotFoundException;
 import com.travelapp.route.model.dto.routing.RoutingDayResult;
 import com.travelapp.route.model.dto.routing.RoutingPoint;
 import com.travelapp.route.model.dto.routing.RoutingSegmentResult;
+import com.travelapp.route.model.entity.CityGraphVersion;
 import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.model.entity.RouteDay;
 import com.travelapp.route.model.entity.RouteDayPath;
@@ -14,6 +15,7 @@ import com.travelapp.route.model.entity.RouteSegmentPath;
 import com.travelapp.route.repository.RouteDayPathRepository;
 import com.travelapp.route.repository.RouteRepository;
 import com.travelapp.route.repository.RouteSegmentPathRepository;
+import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.RoutingProvider;
 import com.travelapp.route.service.RoutePathCacheService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,8 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
     private final RouteDayPathRepository routeDayPathRepository;
     private final RouteSegmentPathRepository routeSegmentPathRepository;
     private final RoutingProvider routingProvider;
+    private final GraphRoutingServiceImpl graphRoutingService;
+    private final GraphVersionService graphVersionService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -43,6 +47,8 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
         Route route = routeRepository.findById(routeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
+        CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(route.getCityId());
+        graphRoutingService.evictRoadGraphCache();
         invalidateRoutePaths(routeId);
 
         for (RouteDay day : route.getRouteDays()) {
@@ -66,6 +72,7 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
 
             RouteDayPath dayPath = new RouteDayPath();
             dayPath.setRouteDay(day);
+            dayPath.setGraphVersion(activeVersion);
             dayPath.setTransportMode(route.getTransportMode());
             dayPath.setProvider(result.getProvider());
             dayPath.setGeometrySource(result.getGeometrySource());
@@ -81,6 +88,7 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 entity.setRouteDay(day);
                 entity.setFromRoutePoint(pointMap.get(seg.getFromRoutePointId()));
                 entity.setToRoutePoint(pointMap.get(seg.getToRoutePointId()));
+                entity.setGraphVersion(activeVersion);
                 entity.setSegmentOrder(order++);
                 entity.setTransportMode(route.getTransportMode());
                 entity.setProvider(seg.getProvider());
@@ -92,6 +100,42 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 routeSegmentPathRepository.save(entity);
             }
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isRouteCacheMissingOrStale(Route route) {
+        if (route == null) {
+            return true;
+        }
+
+        Long activeVersionId = graphVersionService.getRequiredActiveVersionId(route.getCityId());
+        for (RouteDay day : route.getRouteDays()) {
+            RouteDayPath dayPath = routeDayPathRepository.findByRouteDayId(day.getId()).orElse(null);
+            if (dayPath == null || dayPath.getGraphVersion() == null || !activeVersionId.equals(dayPath.getGraphVersion().getId())) {
+                return true;
+            }
+
+            List<RouteSegmentPath> segments = routeSegmentPathRepository.findByRouteDayIdOrderBySegmentOrderAsc(day.getId());
+            long expectedSegments = Math.max(day.getRoutePoints().stream().filter(p -> p.getPoiLatitude() != null && p.getPoiLongitude() != null).count() - 1, 0);
+            if (segments.size() != expectedSegments) {
+                return true;
+            }
+            boolean hasStaleSegment = segments.stream().anyMatch(segment -> segment.getGraphVersion() == null || !activeVersionId.equals(segment.getGraphVersion().getId()));
+            if (hasStaleSegment) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isRouteCacheActual(Long routeId) {
+        Route route = routeRepository.findById(routeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+        return !isRouteCacheMissingOrStale(route);
     }
 
     @Override

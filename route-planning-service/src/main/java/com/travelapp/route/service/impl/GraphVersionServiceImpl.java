@@ -26,4 +26,10 @@ public class GraphVersionServiceImpl implements GraphVersionService {
         return repository.findFirstByCityIdAndStatusOrderByVersionNoDesc(cityId, CityGraphVersion.Status.ACTIVE)
                 .orElseThrow(() -> new ResourceNotFoundException("Для города " + cityId + " не подготовлен граф дорог"));
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveVersion(Long cityId) {
+        return repository.findFirstByCityIdAndStatusOrderByVersionNoDesc(cityId, CityGraphVersion.Status.ACTIVE).isPresent();
+    }
 }

@@ -9,6 +9,7 @@ import com.travelapp.route.service.DistanceCalculationService;
 import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.PoiSnapService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,9 @@ public class PoiSnapServiceImpl implements PoiSnapService {
     private final GraphVersionService graphVersionService;
     private final DistanceCalculationService distanceCalculationService;
 
+    @Value("${routing.snap.max-distance-m:250.0}")
+    private double maxSnapDistanceM;
+
     @Override
     @Transactional
     public Optional<PoiGraphBinding> snapPoint(Long cityId, RoutingPoint point) {
@@ -38,8 +42,10 @@ public class PoiSnapServiceImpl implements PoiSnapService {
         Long graphVersionId = graphVersionService.getRequiredActiveVersionId(cityId);
 
         if (point.getPoiId() != null) {
-            Optional<PoiGraphBinding> cached = bindingRepository
-                    .findByPoiIdAndGraphVersionId(point.getPoiId(), graphVersionId);
+            Optional<PoiGraphBinding> cached = bindingRepository.findByPoiIdAndCityId(point.getPoiId(), cityId)
+                    .filter(binding -> binding.getGraphVersion() != null)
+                    .filter(binding -> graphVersionId.equals(binding.getGraphVersion().getId()))
+                    .filter(binding -> binding.getSnapDistanceM() == null || binding.getSnapDistanceM() <= maxSnapDistanceM);
 
             if (cached.isPresent()) {
                 return cached;
@@ -56,15 +62,21 @@ public class PoiSnapServiceImpl implements PoiSnapService {
                 new double[]{point.getLatitude(), point.getLongitude()},
                 new double[]{node.getLatitude(), node.getLongitude()}
         );
+        double snapDistanceM = snapDistanceKm * 1000.0;
+        if (snapDistanceM > maxSnapDistanceM) {
+            return Optional.empty();
+        }
 
-        PoiGraphBinding binding = new PoiGraphBinding();
+        PoiGraphBinding binding = point.getPoiId() == null
+                ? new PoiGraphBinding()
+                : bindingRepository.findById(point.getPoiId()).orElseGet(PoiGraphBinding::new);
         binding.setPoiId(point.getPoiId());
         binding.setCityId(cityId);
         binding.setGraphVersion(node.getGraphVersion());
         binding.setNearestNode(node);
         binding.setSnappedLatitude(node.getLatitude());
         binding.setSnappedLongitude(node.getLongitude());
-        binding.setSnapDistanceM(snapDistanceKm * 1000.0);
+        binding.setSnapDistanceM(snapDistanceM);
 
         if (point.getPoiId() == null) {
             return Optional.of(binding);
@@ -90,7 +102,9 @@ public class PoiSnapServiceImpl implements PoiSnapService {
                 .toList();
 
         if (!poiIds.isEmpty()) {
-            bindingRepository.findByPoiIdInAndGraphVersionId(poiIds, graphVersionId)
+            bindingRepository.findByPoiIdInAndCityId(poiIds, cityId).stream()
+                    .filter(binding -> binding.getGraphVersion() != null && graphVersionId.equals(binding.getGraphVersion().getId()))
+                    .filter(binding -> binding.getSnapDistanceM() == null || binding.getSnapDistanceM() <= maxSnapDistanceM)
                     .forEach(binding -> result.put(binding.getPoiId(), binding));
         }
 

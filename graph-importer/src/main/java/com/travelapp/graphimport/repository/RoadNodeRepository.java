@@ -14,6 +14,8 @@ public interface RoadNodeRepository extends JpaRepository<RoadNode, Long> {
     @Query("delete from RoadNode rn where rn.cityId = :cityId and rn.graphVersion.id = :graphVersionId")
     void deleteByCityIdAndGraphVersionId(@Param("cityId") Long cityId, @Param("graphVersionId") Long graphVersionId);
 
+    long countByGraphVersion_Id(Long graphVersionId);
+
     @Query(value = """
             SELECT rn.*
             FROM road_nodes rn

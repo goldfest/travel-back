@@ -46,12 +46,16 @@ public class RouteMapServiceImpl implements RouteMapService {
         Route route = routeRepository.findByIdAndUserId(routeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
-        boolean cacheMissing = route.getRouteDays().stream()
-                .anyMatch(day -> routeDayPathRepository.findByRouteDayId(day.getId()).isEmpty());
+        if (route.getStatus() == Route.RouteStatus.GRAPH_PREPARING) {
+            return buildPendingMap(route);
+        }
 
-        if (cacheMissing) {
+        boolean cacheMissingOrStale = route.getRouteDays().stream()
+                .anyMatch(day -> routeDayPathRepository.findByRouteDayId(day.getId()).isEmpty())
+                || !routePathCacheService.isRouteCacheActual(route.getId());
+
+        if (cacheMissingOrStale) {
             routePathCacheService.rebuildRoutePaths(route.getId());
-
             route = routeRepository.findByIdAndUserId(routeId, userId)
                     .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
         }
@@ -130,11 +134,9 @@ public class RouteMapServiceImpl implements RouteMapService {
                     totalDuration += dayPath.getDurationMin();
                 }
             } else {
-                allCoordinates.addAll(
-                        points.stream()
-                                .map(p -> new LatLngDto(p.getPoiLatitude(), p.getPoiLongitude()))
-                                .toList()
-                );
+                allCoordinates.addAll(points.stream()
+                        .map(p -> new LatLngDto(p.getPoiLatitude(), p.getPoiLongitude()))
+                        .toList());
             }
 
             List<RouteSegmentPath> segmentPaths = routeSegmentPathRepository.findByRouteDayIdOrderBySegmentOrderAsc(day.getId());
@@ -156,7 +158,66 @@ public class RouteMapServiceImpl implements RouteMapService {
         }
 
         response.setTotalDurationMin(totalDuration > 0 ? totalDuration : route.getDurationMin());
+        return response;
+    }
 
+
+    private RouteMapResponse buildPendingMap(Route route) {
+        RouteMapResponse response = new RouteMapResponse();
+        response.setRouteId(route.getId());
+        response.setRouteName(route.getName());
+        response.setDescription(route.getDescription());
+        response.setTransportMode(route.getTransportMode().name());
+
+        List<RouteDay> sortedDays = route.getRouteDays().stream()
+                .sorted(Comparator.comparing(RouteDay::getDayNumber))
+                .toList();
+
+        List<RouteMapDayResponse> dayResponses = new ArrayList<>();
+        List<LatLngDto> allCoordinates = new ArrayList<>();
+
+        for (RouteDay day : sortedDays) {
+            List<RoutePoint> points = day.getRoutePoints().stream()
+                    .filter(p -> p.getPoiLatitude() != null && p.getPoiLongitude() != null)
+                    .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
+                    .toList();
+
+            RouteMapDayResponse dayResponse = new RouteMapDayResponse();
+            dayResponse.setRouteDayId(day.getId());
+            dayResponse.setDayNumber(day.getDayNumber());
+            dayResponse.setPoints(points.stream().map(point -> {
+                RouteMapPointResponse dto = new RouteMapPointResponse();
+                dto.setRoutePointId(point.getId());
+                dto.setPoiId(point.getPoiId());
+                dto.setOrderIndex(point.getOrderIndex());
+                dto.setPoiName(point.getPoiName());
+                dto.setPoiAddress(point.getPoiAddress());
+                dto.setPoiType(point.getPoiType());
+                dto.setLatitude(point.getPoiLatitude());
+                dto.setLongitude(point.getPoiLongitude());
+                dto.setEstimatedVisitMinutes(point.getEstimatedVisitMinutes());
+                dto.setPlannedArrivalAt(point.getPlannedArrivalAt());
+                dto.setPlannedDepartureAt(point.getPlannedDepartureAt());
+                return dto;
+            }).toList());
+
+            List<LatLngDto> fallbackCoordinates = points.stream()
+                    .map(p -> new LatLngDto(p.getPoiLatitude(), p.getPoiLongitude()))
+                    .toList();
+
+            RoutePolylineDto polyline = new RoutePolylineDto();
+            polyline.setSource("GRAPH_PREPARING");
+            polyline.setCoordinates(fallbackCoordinates);
+            dayResponse.setPolyline(polyline);
+
+            allCoordinates.addAll(fallbackCoordinates);
+            dayResponses.add(dayResponse);
+        }
+
+        response.setDays(dayResponses);
+        response.setViewport(buildViewport(allCoordinates));
+        response.setTotalDistanceKm(route.getDistanceKm());
+        response.setTotalDurationMin(route.getDurationMin());
         return response;
     }
 
@@ -169,12 +230,12 @@ public class RouteMapServiceImpl implements RouteMapService {
         segment.setTransportMode(path.getTransportMode().name());
         segment.setProvider(path.getProvider());
         segment.setStatus(path.getStatus());
+        segment.setDiagnosticCode(path.getDiagnosticCode());
 
         RoutePolylineDto polyline = new RoutePolylineDto();
         polyline.setSource(path.getGeometrySource());
         polyline.setCoordinates(readCoordinates(path.getPolylineJson()));
         segment.setPolyline(polyline);
-
         return segment;
     }
 
@@ -206,7 +267,6 @@ public class RouteMapServiceImpl implements RouteMapService {
         viewport.setMaxLng(maxLng);
         viewport.setCenterLat((minLat + maxLat) / 2.0);
         viewport.setCenterLng((minLng + maxLng) / 2.0);
-
         return viewport;
     }
 }

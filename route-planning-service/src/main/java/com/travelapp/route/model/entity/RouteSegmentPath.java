@@ -56,6 +56,9 @@ public class RouteSegmentPath {
     @Column(name = "status", nullable = false, length = 20)
     private String status = "OK";
 
+    @Column(name = "diagnostic_code", length = 64)
+    private String diagnosticCode;
+
     @Column(name = "distance_km", precision = 8, scale = 2)
     private BigDecimal distanceKm;
 

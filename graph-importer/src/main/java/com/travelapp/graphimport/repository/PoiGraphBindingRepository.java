@@ -7,7 +7,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PoiGraphBindingRepository extends JpaRepository<PoiGraphBinding, Long> {
+
+    long countByGraphVersion_Id(Long graphVersionId);
+
     @Modifying
     @Query("delete from PoiGraphBinding p where p.cityId = :cityId and p.graphVersion.id = :graphVersionId")
-    void deleteByCityIdAndGraphVersionId(@Param("cityId") Long cityId, @Param("graphVersionId") Long graphVersionId);
+    void deleteByCityIdAndGraphVersionId(@Param("cityId") Long cityId,
+                                         @Param("graphVersionId") Long graphVersionId);
 }

@@ -43,6 +43,7 @@ public class InternalGraphRoutingProvider implements RoutingProvider {
         BigDecimal totalDistance = BigDecimal.ZERO;
         int totalDuration = 0;
         boolean graphUsedForAll = true;
+        Long graphVersionId = null;
 
         for (int i = 1; i < points.size(); i++) {
             RoutingSegmentResult segment = graphRoutingService.buildSegment(cityId, points.get(i - 1), points.get(i), transportMode);
@@ -53,6 +54,9 @@ public class InternalGraphRoutingProvider implements RoutingProvider {
             if (!"GRAPH".equals(segment.getGeometrySource())) {
                 graphUsedForAll = false;
             }
+            if (segment.getGraphVersionId() != null) {
+                graphVersionId = segment.getGraphVersionId();
+            }
         }
 
         result.setSegments(segments);
@@ -61,6 +65,7 @@ public class InternalGraphRoutingProvider implements RoutingProvider {
         result.setTotalDurationMin(totalDuration);
         result.setProvider("INTERNAL_GRAPH");
         result.setGeometrySource(graphUsedForAll ? "GRAPH" : "FALLBACK");
+        result.setGraphVersionId(graphVersionId);
         return result;
     }
 

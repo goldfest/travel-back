@@ -1,6 +1,5 @@
 package com.travelapp.graphimport.model.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -8,6 +7,5 @@ import lombok.Data;
 public class GraphImportRequest {
     @NotNull
     private Long cityId;
-    @NotBlank
     private String osmFilePath;
 }

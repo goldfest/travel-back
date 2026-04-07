@@ -15,5 +15,8 @@ public class RoutingSegmentResult {
     private String provider;
     private String geometrySource;
     private String status;
+    private String diagnosticCode;
+    private String debugReason;
+    private Long graphVersionId;
     private List<LatLngDto> coordinates;
 }

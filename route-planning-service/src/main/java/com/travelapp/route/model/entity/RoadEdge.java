@@ -47,7 +47,7 @@ public class RoadEdge {
     private Boolean mixedAllowed = true;
 
     @Column(name = "public_transport_allowed", nullable = false)
-    private Boolean publicTransportAllowed = true;
+    private Boolean publicTransportAllowed = false;
 
     @Column(name = "walk_time_sec")
     private Integer walkTimeSec;
@@ -63,6 +63,10 @@ public class RoadEdge {
 
     @Column(name = "bidirectional", nullable = false)
     private Boolean bidirectional = true;
+
+    @ColumnTransformer(read = "ST_AsText(geom)", write = "ST_GeomFromText(?, 4326)")
+    @Column(name = "geom", columnDefinition = "geometry(LineString, 4326)", nullable = false)
+    private String geom;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @ColumnTransformer(write = "?::jsonb")

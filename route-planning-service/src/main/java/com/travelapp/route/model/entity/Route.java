@@ -93,7 +93,7 @@ public class Route {
     }
 
     public enum RouteStatus {
-        DRAFT, READY, ARCHIVED
+        DRAFT, GRAPH_PREPARING, READY, ARCHIVED
     }
 
 }

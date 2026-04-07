@@ -8,6 +8,6 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PoiGraphBindingRepository extends JpaRepository<PoiGraphBinding, Long> {
-    List<PoiGraphBinding> findByPoiIdInAndGraphVersionId(Collection<Long> poiIds, Long graphVersionId);
-    Optional<PoiGraphBinding> findByPoiIdAndGraphVersionId(Long poiId, Long graphVersionId);
+    List<PoiGraphBinding> findByPoiIdInAndCityId(Collection<Long> poiIds, Long cityId);
+    Optional<PoiGraphBinding> findByPoiIdAndCityId(Long poiId, Long cityId);
 }
