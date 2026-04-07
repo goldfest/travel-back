@@ -6,7 +6,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,6 +36,10 @@ public class RouteSegmentPath {
     @JoinColumn(name = "to_route_point_id", nullable = false)
     private RoutePoint toRoutePoint;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "graph_version_id")
+    private CityGraphVersion graphVersion;
+
     @Column(name = "segment_order", nullable = false)
     private Short segmentOrder;
 
@@ -56,8 +62,9 @@ public class RouteSegmentPath {
     @Column(name = "duration_min")
     private Integer durationMin;
 
-    @Column(name = "polyline_json", columnDefinition = "jsonb", nullable = false)
+    @JdbcTypeCode(SqlTypes.JSON)
     @ColumnTransformer(write = "?::jsonb")
+    @Column(name = "polyline_json", columnDefinition = "jsonb", nullable = false)
     private String polylineJson = "[]";
 
     @CreationTimestamp

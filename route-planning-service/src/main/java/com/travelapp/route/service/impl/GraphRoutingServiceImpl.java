@@ -6,13 +6,11 @@ import com.travelapp.route.model.dto.response.LatLngDto;
 import com.travelapp.route.model.dto.routing.RoutingPoint;
 import com.travelapp.route.model.dto.routing.RoutingSegmentResult;
 import com.travelapp.route.model.dto.routing.TravelMatrixResult;
-import com.travelapp.route.model.entity.PoiGraphBinding;
-import com.travelapp.route.model.entity.RoadEdge;
-import com.travelapp.route.model.entity.RoadNode;
-import com.travelapp.route.model.entity.Route;
+import com.travelapp.route.model.entity.*;
 import com.travelapp.route.repository.RoadEdgeRepository;
 import com.travelapp.route.service.DistanceCalculationService;
 import com.travelapp.route.service.GraphRoutingService;
+import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.PoiSnapService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +34,7 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
 
     private final RoadEdgeRepository roadEdgeRepository;
     private final PoiSnapService poiSnapService;
+    private final GraphVersionService graphVersionService;
     private final DistanceCalculationService distanceCalculationService;
     private final ObjectMapper objectMapper;
 
@@ -150,7 +149,9 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
 
     @Cacheable(cacheNames = "roadGraphByCityAndMode", key = "#cityId + '_' + #transportMode.name()")
     public RoadGraph loadGraph(Long cityId, Route.TransportMode transportMode) {
-        List<RoadEdge> edges = roadEdgeRepository.findByCityId(cityId);
+        CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(cityId);
+
+        List<RoadEdge> edges = roadEdgeRepository.findByGraphVersion_Id(activeVersion.getId());
         Map<Long, List<EdgeState>> adjacency = new HashMap<>();
 
         for (RoadEdge edge : edges) {

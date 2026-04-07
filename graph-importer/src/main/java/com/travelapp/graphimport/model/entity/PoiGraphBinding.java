@@ -1,4 +1,4 @@
-package com.travelapp.route.model.entity;
+package com.travelapp.graphimport.model.entity;
 
 import jakarta.persistence.*;
 import lombok.Getter;
