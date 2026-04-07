@@ -1,6 +1,7 @@
 package com.travelapp.poi.controller;
 
 import com.travelapp.poi.exception.PoiNotFoundException;
+import com.travelapp.poi.model.dto.response.InternalPoiLiteResponse;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.repository.PoiRepository;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Hidden
@@ -50,5 +52,26 @@ public class InternalPoiController {
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    @GetMapping("/cities/{cityId}/pois")
+    public ResponseEntity<List<InternalPoiLiteResponse>> getCityPois(@PathVariable Long cityId,
+                                                                     @RequestParam(defaultValue = "true") boolean onlyVerified,
+                                                                     @RequestParam(defaultValue = "true") boolean onlyActive) {
+        List<Poi> pois = poiRepository.findByCityId(cityId);
+        List<InternalPoiLiteResponse> result = pois.stream()
+                .filter(poi -> !onlyVerified || Boolean.TRUE.equals(poi.getIsVerified()))
+                .filter(poi -> !onlyActive || !Boolean.TRUE.equals(poi.getIsClosed()))
+                .map(poi -> InternalPoiLiteResponse.builder()
+                        .id(poi.getId())
+                        .cityId(poi.getCityId())
+                        .name(poi.getName())
+                        .latitude(poi.getLatitude() == null ? null : poi.getLatitude().doubleValue())
+                        .longitude(poi.getLongitude() == null ? null : poi.getLongitude().doubleValue())
+                        .isVerified(poi.getIsVerified())
+                        .isClosed(poi.getIsClosed())
+                        .build())
+                .toList();
+        return ResponseEntity.ok(result);
     }
 }
