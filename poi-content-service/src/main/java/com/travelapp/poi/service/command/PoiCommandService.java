@@ -16,4 +16,6 @@ public interface PoiCommandService {
     void verifyPoi(Long id, Long adminId);
     void unverifyPoi(Long id, Long adminId);
     void verifyPoiInternal(Long id);
+
+    PoiResponse updatePoiFromImport(Long id, PoiCreateRequest request, Long userId);
 }

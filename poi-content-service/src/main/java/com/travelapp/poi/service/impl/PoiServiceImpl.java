@@ -108,4 +108,9 @@ public class PoiServiceImpl implements PoiService {
         commandService.verifyPoiInternal(id);
     }
 
+    @Override
+    public PoiResponse updatePoiFromImport(Long id, PoiCreateRequest request, Long userId) {
+        return commandService.updatePoiFromImport(id, request, userId);
+    }
+
 }

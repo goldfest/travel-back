@@ -46,4 +46,6 @@ public interface PoiService {
 
     void verifyPoiInternal(Long id);
 
+    PoiResponse updatePoiFromImport(Long id, PoiCreateRequest request, Long userId);
+
 }

@@ -89,6 +89,7 @@ services:
       CITY_SERVICE_URL: http://city-service:8082/api/cities
       REVIEW_SERVICE_URL: http://review-service:8083/api/reviews
       ML_SERVICE_URL: http://ml-poi-worker-service:8000
+      TWO_GIS_API_KEY: 93d687e4-cca9-41c9-933d-95fc89ba7ea4
     restart: unless-stopped
     networks: [travel-net]
 

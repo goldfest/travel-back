@@ -236,6 +236,7 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
         if (type == null || type.isBlank()) {
             return poiRepository.findByCityIdAndIsVerifiedTrueAndIsClosedFalse(cityId, pageable)
+                    .getContent()
                     .stream()
                     .map(this::enrichPoiResponse)
                     .toList();
@@ -246,6 +247,7 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
         return poiRepository.findByCityIdAndPoiTypeIdAndIsVerifiedTrueAndIsClosedFalse(
                         cityId, poiType.getId(), pageable)
+                .getContent()
                 .stream()
                 .map(this::enrichPoiResponse)
                 .toList();

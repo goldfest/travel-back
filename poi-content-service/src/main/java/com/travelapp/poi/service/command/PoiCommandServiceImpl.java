@@ -229,4 +229,62 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         poiRepository.save(poi);
     }
 
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "pois", allEntries = true)
+    })
+    public PoiResponse updatePoiFromImport(Long id, PoiCreateRequest request, Long userId) {
+        log.info("Updating POI from import: {} by user {}", id, userId);
+
+        Poi poi = poiRepository.findById(id)
+                .orElseThrow(() -> new PoiNotFoundException(id));
+
+        PoiType poiType = poiTypeRepository.findById(request.getPoiTypeId())
+                .orElseThrow(() -> new PoiTypeNotFoundException(request.getPoiTypeId()));
+
+        poi.setName(request.getName());
+        poi.setCityId(request.getCityId());
+        poi.setPoiType(poiType);
+        poi.setLatitude(request.getLatitude());
+        poi.setLongitude(request.getLongitude());
+        poi.setAddress(request.getAddress());
+        poi.setDescription(request.getDescription());
+        poi.setPhone(request.getPhone());
+        poi.setSiteUrl(request.getSiteUrl());
+        poi.setPriceLevel(request.getPriceLevel());
+
+        if (request.getTags() != null) {
+            poi.setTags(request.getTags());
+        }
+
+        if (request.getFeatures() != null) {
+            poi.getFeatures().clear();
+            for (var e : request.getFeatures().entrySet()) {
+                PoiFeature feature = new PoiFeature();
+                feature.setKey(e.getKey());
+                feature.setValue(e.getValue());
+                poi.addFeature(feature);
+            }
+        }
+
+        if (request.getSources() != null && !request.getSources().isEmpty()) {
+            boolean hasAnySource = poi.getSources() != null && !poi.getSources().isEmpty();
+
+            if (!hasAnySource) {
+                request.getSources().forEach(sourceRequest -> {
+                    PoiSource source = new PoiSource();
+                    source.setSourceCode(sourceRequest.getSourceCode());
+                    source.setSourceUrl(sourceRequest.getSourceUrl());
+                    source.setConfidenceScore(sourceRequest.getConfidenceScore());
+                    poi.addSource(source);
+                });
+            }
+        }
+
+        Poi updated = poiRepository.save(poi);
+        return poiMapper.toResponse(updated);
+    }
+
 }

@@ -100,4 +100,9 @@ public interface PoiRepository extends JpaRepository<Poi, Long>, JpaSpecificatio
             Long cityId,
             Pageable pageable
     );
+
+    Optional<Poi> findFirstByNameIgnoreCaseAndAddressIgnoreCaseAndCityId(String name, String address, Long cityId);
+
+    @Query("SELECT p FROM Poi p WHERE p.cityId = :cityId AND p.isVerified = true AND p.isClosed = false")
+    List<Poi> findActiveVerifiedByCityId(@Param("cityId") Long cityId);
 }

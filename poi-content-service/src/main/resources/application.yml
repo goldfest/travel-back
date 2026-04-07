@@ -59,4 +59,7 @@ services:
     exists-path: /internal/users/{id}/exists
   ml:
     base-url: ${ML_SERVICE_URL:http://localhost:8000}
+  two-gis:
+    base-url: https://catalog.api.2gis.com
+    api-key: ${TWO_GIS_API_KEY}
 

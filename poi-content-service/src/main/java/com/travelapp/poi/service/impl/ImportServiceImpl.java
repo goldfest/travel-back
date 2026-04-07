@@ -17,6 +17,7 @@ import com.travelapp.poi.model.ml.request.MlEnrichRawRequest;
 import com.travelapp.poi.model.ml.request.MlRawMediaDto;
 import com.travelapp.poi.repository.DataImportTaskRepository;
 import com.travelapp.poi.service.ImportService;
+import com.travelapp.poi.service.PoiDuplicateDetectionService;
 import com.travelapp.poi.service.slug.SlugService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -57,6 +58,8 @@ public class ImportServiceImpl implements ImportService {
 
     private final TwoGisClient twoGisClient;
     private final TwoGisToMlRawMapper twoGisToMlRawMapper;
+
+    private final PoiDuplicateDetectionService poiDuplicateDetectionService;
 
     private final ExecutorService importExecutor = Executors.newFixedThreadPool(5);
 
@@ -415,6 +418,16 @@ public class ImportServiceImpl implements ImportService {
 
             for (var rawPoi : rawPois) {
                 try {
+                    if (rawPoi.getName() == null || rawPoi.getName().isBlank()
+                            || rawPoi.getLatitude() == null
+                            || rawPoi.getLongitude() == null) {
+                        log.warn("Skipping invalid raw 2GIS POI before ML. taskId={}, externalId={}, name={}",
+                                task.getId(),
+                                rawPoi.getExternalId(),
+                                rawPoi.getName());
+                        continue;
+                    }
+
                     MlEnrichRawRequest enrichRequest = twoGisToMlRawMapper.toMlRequest(rawPoi, task.getCityId());
                     MlEnrichResponse enrichResponse = mlPoiWorkerClient.enrichRaw(enrichRequest);
 
@@ -424,32 +437,54 @@ public class ImportServiceImpl implements ImportService {
                     }
 
                     if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
-                        log.warn("2GIS POI rejected by ML. taskId={}, externalId={}, errors={}",
+                        log.warn("2GIS POI rejected by ML. taskId={}, externalId={}, errors={}, warnings={}",
                                 task.getId(),
                                 rawPoi.getExternalId(),
-                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null);
+                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
+                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
                         continue;
                     }
 
                     var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
-                    createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
 
-                    var createdPoi = poiService.createPoi(createRequest, userId);
-                    created++;
+                    var duplicate = poiDuplicateDetectionService.findDuplicate(createRequest);
 
-                    if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
-                        poiService.verifyPoiInternal(createdPoi.getId());
+                    if (duplicate.isPresent()) {
+                        var updatedPoi = poiService.updatePoiFromImport(duplicate.get().getId(), createRequest, userId);
+                        updated++;
+
+                        if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+                            poiService.verifyPoiInternal(updatedPoi.getId());
+                        }
+
+                        log.info("2GIS POI updated from import. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+                                task.getId(),
+                                rawPoi.getExternalId(),
+                                updatedPoi.getId(),
+                                enrichResponse.getStatusRecommendation());
+
+                    } else {
+                        createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
+
+                        var createdPoi = poiService.createPoi(createRequest, userId);
+                        created++;
+
+                        if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+                            poiService.verifyPoiInternal(createdPoi.getId());
+                        }
+
+                        log.info("2GIS POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+                                task.getId(),
+                                rawPoi.getExternalId(),
+                                createdPoi.getId(),
+                                enrichResponse.getStatusRecommendation());
                     }
 
-                    log.info("2GIS POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+                } catch (Exception itemEx) {
+                    log.error("Failed to process one 2GIS POI. taskId={}, externalId={}, rawName={}, error={}",
                             task.getId(),
                             rawPoi.getExternalId(),
-                            createdPoi.getId(),
-                            enrichResponse.getStatusRecommendation());
-
-                } catch (Exception itemEx) {
-                    log.error("Failed to process one 2GIS POI. taskId={}, error={}",
-                            task.getId(),
+                            rawPoi.getName(),
                             itemEx.getMessage(),
                             itemEx);
                 }
