@@ -1,0 +1,86 @@
+package com.travelapp.graphimport.model.entity;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.ColumnTransformer;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Table(name = "road_edges")
+@Getter
+@Setter
+@NoArgsConstructor
+public class RoadEdge {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "city_id", nullable = false)
+    private Long cityId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "graph_version_id", nullable = false)
+    private CityGraphVersion graphVersion;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "from_node_id", nullable = false)
+    private RoadNode fromNode;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "to_node_id", nullable = false)
+    private RoadNode toNode;
+
+    @Column(name = "length_m", nullable = false)
+    private Double lengthM;
+
+    @Column(name = "walk_allowed", nullable = false)
+    private Boolean walkAllowed = true;
+
+    @Column(name = "car_allowed", nullable = false)
+    private Boolean carAllowed = false;
+
+    @Column(name = "mixed_allowed", nullable = false)
+    private Boolean mixedAllowed = true;
+
+    @Column(name = "public_transport_allowed", nullable = false)
+    private Boolean publicTransportAllowed = false;
+
+    @Column(name = "walk_time_sec")
+    private Integer walkTimeSec;
+
+    @Column(name = "car_time_sec")
+    private Integer carTimeSec;
+
+    @Column(name = "mixed_time_sec")
+    private Integer mixedTimeSec;
+
+    @Column(name = "public_transport_time_sec")
+    private Integer publicTransportTimeSec;
+
+    @Column(name = "bidirectional", nullable = false)
+    private Boolean bidirectional = true;
+
+    @ColumnTransformer(read = "ST_AsText(geom)", write = "ST_GeomFromText(?, 4326)")
+    @Column(name = "geom", columnDefinition = "geometry(LineString, 4326)", nullable = false)
+    private String geom;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @ColumnTransformer(write = "?::jsonb")
+    @Column(name = "polyline_json", columnDefinition = "jsonb", nullable = false)
+    private String polylineJson = "[]";
+
+    @Column(name = "source", nullable = false, length = 30)
+    private String source = "OSM";
+
+    public String getGeomWkt() {
+        return geom;
+    }
+
+    public void setGeomWkt(String geomWkt) {
+        this.geom = geomWkt;
+    }
+}

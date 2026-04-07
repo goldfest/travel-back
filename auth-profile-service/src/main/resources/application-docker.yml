@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://auth-db:5432/auth_db
+    username: postgres
+    password: 5558
+
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}

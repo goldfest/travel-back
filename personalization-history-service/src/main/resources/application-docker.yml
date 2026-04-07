@@ -1,0 +1,54 @@
+spring:
+  cache:
+    type: redis
+
+  datasource:
+    url: jdbc:postgresql://personalization-db:5432/personalization_db
+    username: postgres
+    password: 5558
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+      password:
+      timeout: 2000ms
+
+services:
+  auth:
+    url: http://auth-service:8084/api
+    me-path: /internal/users/me
+    info-path: /internal/users/{id}/info
+    exists-path: /internal/users/{id}/exists
+
+  poi:
+    base-url: http://poi-service:8081/api/poi
+
+  city:
+    base-url: http://city-service:8082/api/cities
+
+logging:
+  level:
+    com.travelapp.personalization: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

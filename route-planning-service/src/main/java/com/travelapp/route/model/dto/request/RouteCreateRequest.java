@@ -1,0 +1,43 @@
+package com.travelapp.route.model.dto.request;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.travelapp.route.model.entity.Route;
+import com.travelapp.route.model.entity.Route.TransportMode;
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Data
+@Schema(description = "Запрос на создание маршрута")
+public class RouteCreateRequest {
+
+    @NotBlank(message = "Название маршрута обязательно")
+    @Size(max = 255, message = "Название маршрута не должно превышать 255 символов")
+    private String name;
+
+    @Size(max = 500, message = "Описание не должно превышать 500 символов")
+    private String description;
+
+    @NotNull(message = "ID города обязателен")
+    private Long cityId;
+
+    private TransportMode transportMode = TransportMode.WALK;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime startDate;
+
+    @NotNull
+    @Size(min = 1)
+    private List<RouteDayCreateRequest> days;
+
+    private Route.RouteStatus status = Route.RouteStatus.DRAFT;
+
+    private Boolean autoOptimize = false;
+
+    private String optimizationMode = "TIME";
+}

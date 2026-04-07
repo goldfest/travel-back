@@ -1,0 +1,78 @@
+server:
+  port: 8087
+  servlet:
+    context-path: /api/routes
+
+spring:
+  application:
+    name: route-planning-service
+
+  profiles:
+    active: dev
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/route_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:5558}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+    show-sql: false
+
+  cache:
+    type: ${SPRING_CACHE_TYPE:simple}
+
+  data:
+    redis:
+      repositories:
+        enabled: false
+
+  redis:
+    host: ${SPRING_REDIS_HOST:localhost}
+    port: ${SPRING_REDIS_PORT:6379}
+    password: ${SPRING_REDIS_PASSWORD:}
+    timeout: 6000
+
+app:
+  offline:
+    ttl-days: 30
+    key-prefix: offline
+    storage-limit-bytes: 104857600
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+logging:
+  level:
+    com.travelapp.route: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+
+routing:
+  internal:
+    enabled: true
+    snap-radius-meters: 300
+    fallback-to-straight: true
+    matrix-cache-enabled: true
+    astar:
+      max-visited-nodes: 200000
