@@ -48,7 +48,6 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(route.getCityId());
-        graphRoutingService.evictRoadGraphCache();
         invalidateRoutePaths(routeId);
 
         for (RouteDay day : route.getRouteDays()) {
