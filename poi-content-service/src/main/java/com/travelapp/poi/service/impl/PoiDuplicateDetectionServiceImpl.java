@@ -9,12 +9,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionService {
+
+    private static final BigDecimal COORDINATE_DELTA = new BigDecimal("0.001");
 
     private final PoiRepository poiRepository;
     private final PoiSourceRepository poiSourceRepository;
@@ -35,6 +39,12 @@ public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionSe
         if (byNameAndAddress.isPresent()) {
             log.info("Duplicate detected by name+address for POI name={}", request.getName());
             return byNameAndAddress;
+        }
+
+        Optional<Poi> byNameAndCoordinates = findByNameAndCoordinates(request);
+        if (byNameAndCoordinates.isPresent()) {
+            log.info("Duplicate detected by name+coordinates for POI name={}", request.getName());
+            return byNameAndCoordinates;
         }
 
         return Optional.empty();
@@ -75,5 +85,28 @@ public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionSe
                 request.getAddress().trim(),
                 request.getCityId()
         );
+    }
+
+    private Optional<Poi> findByNameAndCoordinates(PoiCreateRequest request) {
+        if (request.getName() == null || request.getName().isBlank()
+                || request.getCityId() == null
+                || request.getLatitude() == null
+                || request.getLongitude() == null) {
+            return Optional.empty();
+        }
+
+        List<Poi> candidates = poiRepository.findPotentialDuplicatesByNameAndCoordinates(
+                request.getName().trim(),
+                request.getLatitude(),
+                request.getLongitude(),
+                request.getCityId(),
+                COORDINATE_DELTA
+        );
+
+        if (candidates == null || candidates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(candidates.get(0));
     }
 }

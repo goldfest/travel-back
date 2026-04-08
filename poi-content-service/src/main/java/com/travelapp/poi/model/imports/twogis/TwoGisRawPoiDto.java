@@ -23,4 +23,8 @@ public class TwoGisRawPoiDto {
     private List<TwoGisRawHourDto> hours = new ArrayList<>();
     private List<TwoGisRawMediaDto> media = new ArrayList<>();
     private String sourceUrl;
+    private String purposeName;
+    private List<String> rubricNames = new ArrayList<>();
+    private Boolean hasPhotos;
+    private String staticMapUrl;
 }

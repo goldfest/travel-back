@@ -105,4 +105,20 @@ public interface PoiRepository extends JpaRepository<Poi, Long>, JpaSpecificatio
 
     @Query("SELECT p FROM Poi p WHERE p.cityId = :cityId AND p.isVerified = true AND p.isClosed = false")
     List<Poi> findActiveVerifiedByCityId(@Param("cityId") Long cityId);
+
+    @Query("""
+        SELECT p
+        FROM Poi p
+        WHERE p.cityId = :cityId
+          AND LOWER(p.name) = LOWER(:name)
+          AND ABS(p.latitude - :latitude) <= :delta
+          AND ABS(p.longitude - :longitude) <= :delta
+    """)
+    List<Poi> findPotentialDuplicatesByNameAndCoordinates(
+            @Param("name") String name,
+            @Param("latitude") BigDecimal latitude,
+            @Param("longitude") BigDecimal longitude,
+            @Param("cityId") Long cityId,
+            @Param("delta") BigDecimal delta
+    );
 }
