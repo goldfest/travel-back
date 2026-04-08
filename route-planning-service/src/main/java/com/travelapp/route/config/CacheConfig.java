@@ -21,10 +21,9 @@ public class CacheConfig {
                 "routes",
                 "routeDetails",
                 "userRoutes",
-                "poiCache"
+                "poiCache",
+                "roadGraphByCityAndMode"
         ));
         return cacheManager;
     }
-
-    // Для продакшена с Redis конфигурация будет в отдельном классе
 }

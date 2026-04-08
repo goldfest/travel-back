@@ -38,6 +38,12 @@ public class RouteResponse {
     private List<String> warnings;
     private Route.RouteStatus status;
 
+    private Long fromRoutePointId;
+    private Long toRoutePointId;
+
+    private RoutePolylineDto polyline;
+    private String provider;
+
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime createdAt;
 

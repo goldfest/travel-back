@@ -48,6 +48,9 @@ public class RouteDay {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @OneToOne(mappedBy = "routeDay", cascade = CascadeType.ALL, orphanRemoval = true)
+    private RouteDayPath dayPath;
+
     // Helper methods
     public void addRoutePoint(RoutePoint routePoint) {
         routePoints.add(routePoint);

@@ -14,11 +14,13 @@ import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.model.entity.RouteDay;
 import com.travelapp.route.model.entity.RoutePoint;
+import com.travelapp.route.repository.RouteDayPathRepository;
 import com.travelapp.route.repository.RouteDayRepository;
 import com.travelapp.route.repository.RoutePointRepository;
 import com.travelapp.route.repository.RouteRepository;
-import com.travelapp.route.service.DistanceCalculationService;
 import com.travelapp.route.service.RouteOptimizationService;
+import com.travelapp.route.service.GraphVersionService;
+import com.travelapp.route.service.RoutePathCacheService;
 import com.travelapp.route.service.RouteService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,15 +46,19 @@ public class RouteServiceImpl implements RouteService {
     private final RouteRepository routeRepository;
     private final RouteDayRepository routeDayRepository;
     private final RoutePointRepository routePointRepository;
+    private final RouteDayPathRepository routeDayPathRepository;
     private final RouteMapper routeMapper;
     private final PoiClient poiClient;
     private final RouteOptimizationService optimizationService;
-    private final DistanceCalculationService distanceCalculationService;
+    private final RoutePathCacheService routePathCacheService;
+    private final GraphVersionService graphVersionService;
+    private final RouteGraphPreparationCoordinator routeGraphPreparationCoordinator;
 
     @Override
     @Transactional
     public RouteResponse createRoute(Long userId, RouteCreateRequest request) {
         log.info("Creating route for user {}: {}", userId, request.getName());
+
         validateRouteName(userId, request.getName(), null);
         validateCreateRequest(request);
 
@@ -70,8 +76,32 @@ public class RouteServiceImpl implements RouteService {
             route.setOptimizationMode(request.getOptimizationMode());
             route = optimizationService.optimizeRoute(route, request.getOptimizationMode());
         }
-        recalculateRouteMetrics(route);
+
         Route savedRoute = routeRepository.save(route);
+
+        if (!hasAnyPoints(savedRoute)) {
+            RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            log.info("Route created successfully without points cache rebuild: {}", savedRoute.getId());
+            return response;
+        }
+
+        if (!graphVersionService.hasActiveVersion(savedRoute.getCityId())) {
+            savedRoute.setStatus(Route.RouteStatus.GRAPH_PREPARING);
+            savedRoute = routeRepository.save(savedRoute);
+            routeGraphPreparationCoordinator.scheduleAfterCommit(savedRoute.getId(), savedRoute.getCityId());
+
+            RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            response.addAdditionalProperty("buildMessage", "Маршрут строится, подождите");
+            log.info("Route {} saved in GRAPH_PREPARING for city {}", savedRoute.getId(), savedRoute.getCityId());
+            return response;
+        }
+
+        routePathCacheService.rebuildRoutePaths(savedRoute.getId());
+        savedRoute = routeRepository.findById(savedRoute.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(savedRoute);
+        savedRoute = routeRepository.save(savedRoute);
 
         RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
         log.info("Route created successfully: {}", savedRoute.getId());
@@ -132,12 +162,27 @@ public class RouteServiceImpl implements RouteService {
             validateRouteName(userId, request.getName(), route.getId());
         }
 
+        boolean transportChanged = request.getTransportMode() != null
+                && !request.getTransportMode().name().equals(route.getTransportMode().name());
+
         routeMapper.updateEntity(route, request);
+
         if (request.getStatus() != null) {
             route.setStatus(request.getStatus());
         }
-        recalculateRouteMetrics(route);
-        return toResponseWithWarnings(routeRepository.save(route), buildWarnings(route, null));
+
+        Route saved = routeRepository.save(route);
+
+        if (transportChanged || hasAnyPoints(saved)) {
+            routePathCacheService.rebuildRoutePaths(saved.getId());
+            saved = routeRepository.findById(saved.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+        }
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
 
     @Override
@@ -190,13 +235,23 @@ public class RouteServiceImpl implements RouteService {
             targetDay.setPlannedStart(sourceDay.getPlannedStart());
             targetDay.setPlannedEnd(sourceDay.getPlannedEnd());
             duplicate.addRouteDay(targetDay);
+
             for (RoutePoint sourcePoint : sourceDay.getRoutePoints()) {
                 RoutePoint targetPoint = copyPoint(sourcePoint);
                 targetDay.addRoutePoint(targetPoint);
             }
         }
-        recalculateRouteMetrics(duplicate);
-        return toResponseWithWarnings(routeRepository.save(duplicate), buildWarnings(duplicate, null));
+
+        Route saved = routeRepository.save(duplicate);
+
+        routePathCacheService.rebuildRoutePaths(saved.getId());
+        saved = routeRepository.findById(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
 
     @Override
@@ -204,15 +259,18 @@ public class RouteServiceImpl implements RouteService {
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public RouteResponse addPoiToRoute(Long userId, Long routeId, Long poiId, Short dayNumber, Short orderIndex) {
         Route route = getOwnedRoute(userId, routeId);
+
         PoiResponse poi;
         try {
             poi = poiClient.getPoiById(poiId);
         } catch (Exception e) {
             throw new ResourceNotFoundException("Объект не найден");
         }
+
         if (poi == null) {
             throw new ResourceNotFoundException("Объект не найден");
         }
+
         validatePoiBelongsToCity(route.getCityId(), poi);
 
         RouteDay routeDay = resolveRouteDay(route, dayNumber);
@@ -230,8 +288,16 @@ public class RouteServiceImpl implements RouteService {
         applyPoiSnapshot(routePoint, poi);
         routeDay.addRoutePoint(routePoint);
 
-        recalculateRouteMetrics(route);
-        return toResponseWithWarnings(routeRepository.save(route), buildWarnings(route, Map.of(poiId, poi)));
+        Route saved = routeRepository.save(route);
+
+        routePathCacheService.rebuildRoutePaths(saved.getId());
+        saved = routeRepository.findById(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, Map.of(poiId, poi)));
     }
 
     @Override
@@ -239,14 +305,26 @@ public class RouteServiceImpl implements RouteService {
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public RouteResponse removePointFromRoute(Long userId, Long routeId, Long routePointId) {
         Route route = getOwnedRoute(userId, routeId);
+
         RoutePoint point = routePointRepository.findByIdAndRouteDayRouteId(routePointId, routeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Точка маршрута не найдена"));
+
         RouteDay day = point.getRouteDay();
         day.removeRoutePoint(point);
         routePointRepository.delete(point);
+
         normalizeDayOrder(day);
-        recalculateRouteMetrics(route);
-        return toResponseWithWarnings(routeRepository.save(route), buildWarnings(route, null));
+
+        Route saved = routeRepository.save(route);
+
+        routePathCacheService.rebuildRoutePaths(saved.getId());
+        saved = routeRepository.findById(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
 
     @Override
@@ -254,21 +332,37 @@ public class RouteServiceImpl implements RouteService {
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public RouteResponse reorderRouteDayPoints(Long userId, Long routeId, Long dayId, List<Long> pointIdsInOrder) {
         Route route = getOwnedRoute(userId, routeId);
+
         RouteDay day = routeDayRepository.findByIdAndRouteId(dayId, routeId)
                 .orElseThrow(() -> new ResourceNotFoundException("День маршрута не найден"));
+
         List<RoutePoint> points = routePointRepository.findByRouteDayIdOrderByOrderIndexAsc(dayId);
         Set<Long> existingIds = points.stream().map(RoutePoint::getId).collect(Collectors.toSet());
+
         if (pointIdsInOrder.size() != points.size() || !existingIds.equals(new HashSet<>(pointIdsInOrder))) {
             throw new RouteValidationException("Некорректный список точек для сортировки внутри дня");
         }
-        Map<Long, RoutePoint> pointMap = points.stream().collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
+
+        Map<Long, RoutePoint> pointMap = points.stream()
+                .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
+
         for (int i = 0; i < pointIdsInOrder.size(); i++) {
             pointMap.get(pointIdsInOrder.get(i)).setOrderIndex((short) (i + 1));
         }
+
         day.getRoutePoints().sort(Comparator.comparingInt(RoutePoint::getOrderIndex));
-        recalculateRouteMetrics(route);
         routePointRepository.saveAll(points);
-        return toResponseWithWarnings(routeRepository.save(route), buildWarnings(route, null));
+
+        Route saved = routeRepository.save(route);
+
+        routePathCacheService.rebuildRoutePaths(saved.getId());
+        saved = routeRepository.findById(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
 
     @Override
@@ -278,9 +372,18 @@ public class RouteServiceImpl implements RouteService {
         Route route = getOwnedRoute(userId, routeId);
         route.setOptimizationMode(optimizationMode);
         route.setIsOptimized(true);
+
         Route optimizedRoute = optimizationService.optimizeRoute(route, optimizationMode);
-        recalculateRouteMetrics(optimizedRoute);
-        return toResponseWithWarnings(routeRepository.save(optimizedRoute), buildWarnings(optimizedRoute, null));
+        Route saved = routeRepository.save(optimizedRoute);
+
+        routePathCacheService.rebuildRoutePaths(saved.getId());
+        saved = routeRepository.findById(saved.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        recalculateRouteMetrics(saved);
+        saved = routeRepository.save(saved);
+
+        return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
 
     @Override
@@ -298,6 +401,7 @@ public class RouteServiceImpl implements RouteService {
                 log.warn("Failed to fetch POI list for interest {}", interest, e);
             }
         }
+
         if (candidates.isEmpty()) {
             throw new RouteValidationException("Не удалось подобрать объекты для генерации маршрута");
         }
@@ -306,7 +410,10 @@ public class RouteServiceImpl implements RouteService {
                 .filter(p -> p.getCityId() != null && p.getCityId().equals(request.getCityId()))
                 .filter(p -> p.getIsClosed() == null || !p.getIsClosed())
                 .filter(p -> request.getBudgetLevel() == null || p.getPriceLevel() == null || p.getPriceLevel() <= request.getBudgetLevel())
-                .collect(Collectors.collectingAndThen(Collectors.toMap(PoiResponse::getId, Function.identity(), (a, b) -> a), m -> new ArrayList<>(m.values())));
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(PoiResponse::getId, Function.identity(), (a, b) -> a),
+                        m -> new ArrayList<>(m.values())
+                ));
 
         if (filtered.isEmpty()) {
             throw new RouteValidationException("После фильтрации не осталось подходящих объектов");
@@ -317,12 +424,15 @@ public class RouteServiceImpl implements RouteService {
 
         int daysCount = Optional.ofNullable(request.getDaysCount()).orElse(1);
         int pointsPerDay = Math.max(1, Math.min(5, (int) Math.ceil((double) filtered.size() / daysCount)));
+
         List<RouteDayCreateRequest> days = new ArrayList<>();
         int cursor = 0;
+
         for (int dayNumber = 1; dayNumber <= daysCount && cursor < filtered.size(); dayNumber++) {
             RouteDayCreateRequest day = new RouteDayCreateRequest();
             day.setDayNumber((short) dayNumber);
             day.setDescription("Сгенерированный день " + dayNumber);
+
             List<RoutePointCreateRequest> points = new ArrayList<>();
             for (int i = 0; i < pointsPerDay && cursor < filtered.size(); i++, cursor++) {
                 PoiResponse poi = filtered.get(cursor);
@@ -332,6 +442,7 @@ public class RouteServiceImpl implements RouteService {
                 point.setEstimatedVisitMinutes(60);
                 points.add(point);
             }
+
             day.setPoints(points);
             days.add(day);
         }
@@ -343,10 +454,13 @@ public class RouteServiceImpl implements RouteService {
         createRequest.setTransportMode(request.getTransportMode());
         createRequest.setStatus(Route.RouteStatus.DRAFT);
         createRequest.setDays(days);
+
         RouteResponse response = createRoute(userId, createRequest);
+
         if (Boolean.TRUE.equals(request.getOptimize())) {
             return optimizeRoute(userId, response.getId(), "TIME");
         }
+
         return response;
     }
 
@@ -366,12 +480,17 @@ public class RouteServiceImpl implements RouteService {
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
     }
 
+    private boolean hasAnyPoints(Route route) {
+        return route.getRouteDays().stream().anyMatch(day -> day.getRoutePoints() != null && !day.getRoutePoints().isEmpty());
+    }
+
     private void validateRouteName(Long userId, String name, Long currentRouteId) {
         boolean exists = routeRepository.existsByUserIdAndNameAndStatusNot(userId, name, Route.RouteStatus.ARCHIVED);
         if (exists) {
             if (currentRouteId == null) {
                 throw new RouteValidationException("Маршрут с таким названием уже существует");
             }
+
             Route existing = routeRepository
                     .findByUserIdAndStatusNotOrderByUpdatedAtDesc(
                             userId,
@@ -382,6 +501,7 @@ public class RouteServiceImpl implements RouteService {
                     .filter(r -> name.equals(r.getName()))
                     .findFirst()
                     .orElse(null);
+
             if (existing != null && !existing.getId().equals(currentRouteId)) {
                 throw new RouteValidationException("Маршрут с таким названием уже существует");
             }
@@ -392,20 +512,25 @@ public class RouteServiceImpl implements RouteService {
         if (request.getDays() == null || request.getDays().isEmpty()) {
             throw new RouteValidationException("Маршрут должен содержать хотя бы один день");
         }
+
         Set<Short> dayNumbers = new HashSet<>();
         for (RouteDayCreateRequest day : request.getDays()) {
             if (!dayNumbers.add(day.getDayNumber())) {
                 throw new RouteValidationException("Номера дней должны быть уникальными");
             }
+
             if (day.getPoints() == null || day.getPoints().isEmpty()) {
                 throw new RouteValidationException("Каждый день должен содержать хотя бы одну точку");
             }
+
             Set<Short> orders = new HashSet<>();
             for (RoutePointCreateRequest point : day.getPoints()) {
                 if (!orders.add(point.getOrderIndex())) {
                     throw new RouteValidationException("Порядок точек должен быть уникальным внутри дня");
                 }
-                if (point.getPlannedArrival() != null && point.getPlannedDeparture() != null
+
+                if (point.getPlannedArrival() != null
+                        && point.getPlannedDeparture() != null
                         && point.getPlannedDeparture().isBefore(point.getPlannedArrival())) {
                     throw new RouteValidationException("plannedDepartureAt не может быть раньше plannedArrivalAt");
                 }
@@ -428,7 +553,10 @@ public class RouteServiceImpl implements RouteService {
         } catch (Exception e) {
             throw new RouteValidationException("Не удалось получить объекты из poi-service");
         }
-        Map<Long, PoiResponse> poiMap = pois.stream().collect(Collectors.toMap(PoiResponse::getId, Function.identity()));
+
+        Map<Long, PoiResponse> poiMap = pois.stream()
+                .collect(Collectors.toMap(PoiResponse::getId, Function.identity()));
+
         for (Long poiId : poiIds) {
             PoiResponse poi = poiMap.get(poiId);
             if (poi == null) {
@@ -436,6 +564,7 @@ public class RouteServiceImpl implements RouteService {
             }
             validatePoiBelongsToCity(routeCityId, poi);
         }
+
         return poiMap;
     }
 
@@ -449,6 +578,7 @@ public class RouteServiceImpl implements RouteService {
         List<RouteDayCreateRequest> sortedDays = days.stream()
                 .sorted(Comparator.comparing(RouteDayCreateRequest::getDayNumber))
                 .toList();
+
         for (RouteDayCreateRequest dayRequest : sortedDays) {
             RouteDay day = new RouteDay();
             day.setDayNumber(dayRequest.getDayNumber());
@@ -461,12 +591,14 @@ public class RouteServiceImpl implements RouteService {
                     .sorted(Comparator.comparing(RoutePointCreateRequest::getOrderIndex))
                     .forEach(pointRequest -> {
                         PoiResponse poi = poiMap.get(pointRequest.getPoiId());
+
                         RoutePoint point = new RoutePoint();
                         point.setOrderIndex(pointRequest.getOrderIndex());
                         point.setPoiId(pointRequest.getPoiId());
                         point.setEstimatedVisitMinutes(pointRequest.getEstimatedVisitMinutes());
                         point.setPlannedArrivalAt(pointRequest.getPlannedArrival());
                         point.setPlannedDepartureAt(pointRequest.getPlannedDeparture());
+
                         applyPoiSnapshot(point, poi);
                         day.addRoutePoint(point);
                     });
@@ -505,7 +637,9 @@ public class RouteServiceImpl implements RouteService {
     }
 
     private short nextOrderIndex(RouteDay routeDay) {
-        return routePointRepository.findMaxOrderIndexByRouteDayId(routeDay.getId()).map(max -> (short) (max + 1)).orElse((short) 1);
+        return routePointRepository.findMaxOrderIndexByRouteDayId(routeDay.getId())
+                .map(max -> (short) (max + 1))
+                .orElse((short) 1);
     }
 
     private RouteDay resolveRouteDay(Route route, Short dayNumber) {
@@ -513,6 +647,7 @@ public class RouteServiceImpl implements RouteService {
             return routeDayRepository.findByRouteIdAndDayNumber(route.getId(), dayNumber)
                     .orElseThrow(() -> new ResourceNotFoundException("День маршрута не найден"));
         }
+
         return route.getRouteDays().stream()
                 .max(Comparator.comparing(RouteDay::getDayNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("У маршрута нет дней"));
@@ -522,6 +657,7 @@ public class RouteServiceImpl implements RouteService {
         List<RoutePoint> points = day.getRoutePoints().stream()
                 .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
                 .toList();
+
         for (int i = 0; i < points.size(); i++) {
             points.get(i).setOrderIndex((short) (i + 1));
         }
@@ -529,7 +665,8 @@ public class RouteServiceImpl implements RouteService {
 
     private void recalculateRouteMetrics(Route route) {
         double totalDistanceKm = 0.0;
-        int totalDurationMinutes = 0;
+        int totalTravelDurationMinutes = 0;
+        int totalVisitDurationMinutes = 0;
 
         for (RouteDay day : route.getRouteDays()) {
             List<RoutePoint> points = day.getRoutePoints().stream()
@@ -537,47 +674,60 @@ public class RouteServiceImpl implements RouteService {
                     .toList();
 
             for (RoutePoint point : points) {
-                totalDurationMinutes += Optional.ofNullable(point.getEstimatedVisitMinutes()).orElse(60);
+                totalVisitDurationMinutes += Optional.ofNullable(point.getEstimatedVisitMinutes()).orElse(60);
             }
-            for (int i = 1; i < points.size(); i++) {
-                double[] prev = coordinates(points.get(i - 1));
-                double[] curr = coordinates(points.get(i));
-                double segmentDistance = distanceCalculationService.calculateDistance(prev, curr);
-                totalDistanceKm += segmentDistance;
-                totalDurationMinutes += distanceCalculationService.calculateTravelTime(segmentDistance, route.getTransportMode().name());
+
+            routeDayPathRepository.findByRouteDayId(day.getId()).ifPresent(dayPath -> {
+                if (dayPath.getDistanceKm() != null) {
+                    // суммирование сделаем ниже без lambda-модификаций
+                }
+            });
+
+            var dayPathOpt = routeDayPathRepository.findByRouteDayId(day.getId());
+            if (dayPathOpt.isPresent()) {
+                var dayPath = dayPathOpt.get();
+                if (dayPath.getDistanceKm() != null) {
+                    totalDistanceKm += dayPath.getDistanceKm().doubleValue();
+                }
+                if (dayPath.getDurationMin() != null) {
+                    totalTravelDurationMinutes += dayPath.getDurationMin();
+                }
             }
-            fillPlannedTimes(day, route.getTransportMode().name());
+
+            fillPlannedTimes(day);
         }
 
         route.setDistanceKm(BigDecimal.valueOf(totalDistanceKm).setScale(2, RoundingMode.HALF_UP));
-        route.setDurationMin(totalDurationMinutes);
+        route.setDurationMin(totalTravelDurationMinutes + totalVisitDurationMinutes);
         route.setStartPoint(firstPointName(route));
         route.setEndPoint(lastPointName(route));
     }
 
-    private void fillPlannedTimes(RouteDay day, String transportMode) {
+    private void fillPlannedTimes(RouteDay day) {
         LocalDateTime cursor = day.getPlannedStart();
-        List<RoutePoint> points = day.getRoutePoints().stream().sorted(Comparator.comparing(RoutePoint::getOrderIndex)).toList();
-        for (int i = 0; i < points.size(); i++) {
-            RoutePoint point = points.get(i);
-            if (cursor != null) {
-                if (point.getPlannedArrivalAt() == null) {
-                    point.setPlannedArrivalAt(cursor);
-                }
-                if (point.getPlannedDepartureAt() == null) {
-                    point.setPlannedDepartureAt(point.getPlannedArrivalAt().plusMinutes(Optional.ofNullable(point.getEstimatedVisitMinutes()).orElse(60)));
-                }
-                cursor = point.getPlannedDepartureAt();
-                if (i < points.size() - 1) {
-                    double distance = distanceCalculationService.calculateDistance(coordinates(point), coordinates(points.get(i + 1)));
-                    cursor = cursor.plusMinutes(distanceCalculationService.calculateTravelTime(distance, transportMode));
-                }
-            }
-        }
-    }
+        List<RoutePoint> points = day.getRoutePoints().stream()
+                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
+                .toList();
 
-    private double[] coordinates(RoutePoint point) {
-        return new double[]{Optional.ofNullable(point.getPoiLatitude()).orElse(0.0), Optional.ofNullable(point.getPoiLongitude()).orElse(0.0)};
+        for (RoutePoint point : points) {
+            if (cursor == null) {
+                break;
+            }
+
+            if (point.getPlannedArrivalAt() == null) {
+                point.setPlannedArrivalAt(cursor);
+            }
+
+            if (point.getPlannedDepartureAt() == null) {
+                point.setPlannedDepartureAt(
+                        point.getPlannedArrivalAt().plusMinutes(
+                                Optional.ofNullable(point.getEstimatedVisitMinutes()).orElse(60)
+                        )
+                );
+            }
+
+            cursor = point.getPlannedDepartureAt();
+        }
     }
 
     private String firstPointName(Route route) {
@@ -586,7 +736,8 @@ public class RouteServiceImpl implements RouteService {
                 .flatMap(day -> day.getRoutePoints().stream().sorted(Comparator.comparing(RoutePoint::getOrderIndex)))
                 .map(RoutePoint::getPoiName)
                 .filter(Objects::nonNull)
-                .findFirst().orElse("Не указано");
+                .findFirst()
+                .orElse("Не указано");
     }
 
     private String lastPointName(Route route) {
@@ -594,21 +745,33 @@ public class RouteServiceImpl implements RouteService {
                 .sorted(Comparator.comparing(RouteDay::getDayNumber))
                 .flatMap(day -> day.getRoutePoints().stream().sorted(Comparator.comparing(RoutePoint::getOrderIndex)))
                 .toList();
-        return allPoints.isEmpty() ? "Не указано" : Optional.ofNullable(allPoints.get(allPoints.size() - 1).getPoiName()).orElse("Не указано");
+
+        return allPoints.isEmpty()
+                ? "Не указано"
+                : Optional.ofNullable(allPoints.get(allPoints.size() - 1).getPoiName()).orElse("Не указано");
     }
 
     private List<String> buildWarnings(Route route, Map<Long, PoiResponse> poiMap) {
         List<String> warnings = new ArrayList<>();
+
         for (RouteDay day : route.getRouteDays()) {
-            int dayDuration = day.getRoutePoints().stream().mapToInt(p -> Optional.ofNullable(p.getEstimatedVisitMinutes()).orElse(60)).sum();
-            List<RoutePoint> points = day.getRoutePoints().stream().sorted(Comparator.comparing(RoutePoint::getOrderIndex)).toList();
-            for (int i = 1; i < points.size(); i++) {
-                double distance = distanceCalculationService.calculateDistance(coordinates(points.get(i - 1)), coordinates(points.get(i)));
-                dayDuration += distanceCalculationService.calculateTravelTime(distance, route.getTransportMode().name());
+            int dayDuration = day.getRoutePoints().stream()
+                    .mapToInt(p -> Optional.ofNullable(p.getEstimatedVisitMinutes()).orElse(60))
+                    .sum();
+
+            var dayPathOpt = routeDayPathRepository.findByRouteDayId(day.getId());
+            if (dayPathOpt.isPresent() && dayPathOpt.get().getDurationMin() != null) {
+                dayDuration += dayPathOpt.get().getDurationMin();
             }
+
             if (dayDuration > 12 * 60) {
                 warnings.add("День " + day.getDayNumber() + " перегружен: около " + dayDuration + " минут");
             }
+
+            List<RoutePoint> points = day.getRoutePoints().stream()
+                    .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
+                    .toList();
+
             for (RoutePoint point : points) {
                 PoiResponse poi = poiMap != null ? poiMap.get(point.getPoiId()) : null;
                 if (poi != null && Boolean.TRUE.equals(poi.getIsClosed())) {
@@ -616,6 +779,7 @@ public class RouteServiceImpl implements RouteService {
                 }
             }
         }
+
         return warnings;
     }
 

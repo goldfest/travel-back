@@ -24,6 +24,7 @@
         <module>route-planning-service</module>
         <module>personalization-history-service</module>
         <module>notification-service</module>
+        <module>graph-importer</module>
     </modules>
 
     <properties>

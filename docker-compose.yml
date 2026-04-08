@@ -92,8 +92,12 @@ services:
         condition: service_healthy
       redis-core:
         condition: service_started
+      graph-importer:
+        condition: service_started
     ports:
       - "8087:8087"
+    env_file:
+      - .env
     environment:
       SPRING_PROFILES_ACTIVE: docker
 
@@ -106,8 +110,10 @@ services:
 
       POI_SERVICE_URL: http://poi-service:8081/api/poi
       AUTH_SERVICE_URL: http://auth-service:8084/api
+
+      SERVICES_GRAPH_IMPORT_URL: http://graph-importer:8080
     restart: unless-stopped
-    networks: [travel-net]
+    networks: [ travel-net ]
 
   # =========================
   # PERSONALIZATION DATABASE
@@ -238,3 +244,24 @@ services:
       POI_SERVICE_URL: http://poi-service:8081/api/poi
       ROUTE_SERVICE_URL: http://route-service:8087/api/routes
     networks: [travel-net]
+
+  graph-importer:
+    build:
+      context: ./graph-importer
+      dockerfile: Dockerfile
+    container_name: graph-importer
+    depends_on:
+      route-db:
+        condition: service_healthy
+    ports:
+      - "8088:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://route-db:5432/route_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 5558
+      POI_SERVICE_URL: http://poi-service:8081/api/poi
+      SPRING_FLYWAY_ENABLED: "false"
+    volumes:
+      - ./osm-data:/osm-data:ro
+    networks: [ travel-net ]

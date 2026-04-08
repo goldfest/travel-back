@@ -42,6 +42,8 @@ services:
     me-path: /internal/users/me
     info-path: /internal/users/{id}/info
     exists-path: /internal/users/{id}/exists
+  graph-import:
+    url: http://graph-importer:8080
 
 logging:
   level:

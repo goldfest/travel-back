@@ -1,0 +1,7 @@
+services:
+  poi:
+    base-url: http://poi-service:8081/api/poi
+
+spring:
+  flyway:
+    enabled: false

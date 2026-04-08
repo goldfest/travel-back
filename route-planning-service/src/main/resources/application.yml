@@ -67,3 +67,12 @@ logging:
     com.travelapp.route: DEBUG
     org.springframework.web: INFO
     org.hibernate.SQL: DEBUG
+
+routing:
+  internal:
+    enabled: true
+    snap-radius-meters: 300
+    fallback-to-straight: true
+    matrix-cache-enabled: true
+    astar:
+      max-visited-nodes: 200000
