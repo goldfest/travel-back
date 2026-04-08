@@ -25,4 +25,12 @@ public interface RouteDayRepository extends JpaRepository<RouteDay, Long> {
     Optional<RouteDay> findByRouteIdAndUserId(@Param("routeId") Long routeId, @Param("userId") Long userId);
 
     void deleteByRouteId(Long routeId);
+
+    @Query("""
+        select distinct d
+        from RouteDay d
+        left join fetch d.routePoints p
+        where d.route.id = :routeId
+    """)
+    List<RouteDay> findWithPointsByRouteId(@Param("routeId") Long routeId);
 }

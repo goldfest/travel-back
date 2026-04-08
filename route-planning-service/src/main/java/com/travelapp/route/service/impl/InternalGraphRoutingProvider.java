@@ -9,6 +9,7 @@ import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.service.GraphRoutingService;
 import com.travelapp.route.service.RoutingProvider;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -18,6 +19,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class InternalGraphRoutingProvider implements RoutingProvider {
 
     private final GraphRoutingService graphRoutingService;
@@ -45,14 +47,29 @@ public class InternalGraphRoutingProvider implements RoutingProvider {
         boolean graphUsedForAll = true;
         Long graphVersionId = null;
 
+        int fallbackSegments = 0;
+
         for (int i = 1; i < points.size(); i++) {
-            RoutingSegmentResult segment = graphRoutingService.buildSegment(cityId, points.get(i - 1), points.get(i), transportMode);
+            RoutingPoint fromPoint = points.get(i - 1);
+            RoutingPoint toPoint = points.get(i);
+            RoutingSegmentResult segment = graphRoutingService.buildSegment(cityId, fromPoint, toPoint, transportMode);
             segments.add(segment);
             totalDistance = totalDistance.add(segment.getDistanceKm() == null ? BigDecimal.ZERO : segment.getDistanceKm());
             totalDuration += segment.getDurationMin() == null ? 0 : segment.getDurationMin();
             mergeCoordinates(dayCoordinates, segment.getCoordinates());
             if (!"GRAPH".equals(segment.getGeometrySource())) {
                 graphUsedForAll = false;
+                fallbackSegments++;
+                log.warn("Day route segment fallback: cityId={}, mode={}, fromRoutePointId={}, toRoutePointId={}, fromPoiId={}, toPoiId={}, status={}, diagnosticCode={}, graphVersionId={}",
+                        cityId,
+                        transportMode,
+                        fromPoint.getRoutePointId(),
+                        toPoint.getRoutePointId(),
+                        fromPoint.getPoiId(),
+                        toPoint.getPoiId(),
+                        segment.getStatus(),
+                        segment.getDiagnosticCode() != null ? segment.getDiagnosticCode() : segment.getDebugReason(),
+                        segment.getGraphVersionId());
             }
             if (segment.getGraphVersionId() != null) {
                 graphVersionId = segment.getGraphVersionId();
@@ -66,6 +83,14 @@ public class InternalGraphRoutingProvider implements RoutingProvider {
         result.setProvider("INTERNAL_GRAPH");
         result.setGeometrySource(graphUsedForAll ? "GRAPH" : "FALLBACK");
         result.setGraphVersionId(graphVersionId);
+
+        if (fallbackSegments > 0) {
+            log.warn("Day route built with fallback segments: cityId={}, mode={}, totalSegments={}, fallbackSegments={}, graphVersionId={}",
+                    cityId, transportMode, segments.size(), fallbackSegments, graphVersionId);
+        } else {
+            log.info("Day route built fully on graph: cityId={}, mode={}, totalSegments={}, graphVersionId={}",
+                    cityId, transportMode, segments.size(), graphVersionId);
+        }
         return result;
     }
 

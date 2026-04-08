@@ -12,6 +12,8 @@ public interface CityGraphVersionRepository extends JpaRepository<CityGraphVersi
 
     Optional<CityGraphVersion> findFirstByCityIdAndStatusOrderByVersionNoDesc(Long cityId, CityGraphVersion.Status status);
 
+    Optional<CityGraphVersion> findFirstByCityIdOrderByVersionNoDesc(Long cityId);
+
     @Query("select coalesce(max(c.versionNo), 0) from CityGraphVersion c where c.cityId = :cityId")
     int findMaxVersionNo(@Param("cityId") Long cityId);
 

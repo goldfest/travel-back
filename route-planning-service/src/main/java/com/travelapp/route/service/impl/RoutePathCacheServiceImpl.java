@@ -19,6 +19,7 @@ import com.travelapp.route.service.GraphVersionService;
 import com.travelapp.route.service.RoutingProvider;
 import com.travelapp.route.service.RoutePathCacheService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,11 +27,13 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RoutePathCacheServiceImpl implements RoutePathCacheService {
 
     private final RouteRepository routeRepository;
@@ -48,7 +51,6 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(route.getCityId());
-        graphRoutingService.evictRoadGraphCache();
         invalidateRoutePaths(routeId);
 
         for (RouteDay day : route.getRouteDays()) {
@@ -68,7 +70,30 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                     .map(p -> new RoutingPoint(p.getId(), p.getPoiId(), p.getPoiLatitude(), p.getPoiLongitude()))
                     .toList();
 
+            log.info("Rebuilding route day path: routeId={}, routeDayId={}, dayNumber={}, cityId={}, mode={}, points={}",
+                    route.getId(), day.getId(), day.getDayNumber(), route.getCityId(), route.getTransportMode(), routingPoints.size());
+
             RoutingDayResult result = routingProvider.buildDayRoute(route.getCityId(), routingPoints, route.getTransportMode());
+
+            long fallbackSegments = result.getSegments() == null ? 0 : result.getSegments().stream()
+                    .filter(seg -> !"GRAPH".equals(seg.getGeometrySource()))
+                    .count();
+            String fallbackReasons = result.getSegments() == null ? "" : result.getSegments().stream()
+                    .map(seg -> seg.getDiagnosticCode() != null ? seg.getDiagnosticCode() : seg.getDebugReason())
+                    .filter(Objects::nonNull)
+                    .filter(reason -> !"GRAPH_OK".equals(reason))
+                    .distinct()
+                    .collect(Collectors.joining(","));
+
+            log.info("Route day path built: routeId={}, routeDayId={}, dayNumber={}, geometrySource={}, segments={}, fallbackSegments={}, fallbackReasons={}, graphVersionId={}",
+                    route.getId(),
+                    day.getId(),
+                    day.getDayNumber(),
+                    result.getGeometrySource(),
+                    result.getSegments() == null ? 0 : result.getSegments().size(),
+                    fallbackSegments,
+                    fallbackReasons.isBlank() ? "-" : fallbackReasons,
+                    result.getGraphVersionId());
 
             RouteDayPath dayPath = new RouteDayPath();
             dayPath.setRouteDay(day);
@@ -94,6 +119,7 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 entity.setProvider(seg.getProvider());
                 entity.setGeometrySource(seg.getGeometrySource());
                 entity.setStatus(seg.getStatus());
+                entity.setDiagnosticCode(seg.getDiagnosticCode() != null ? seg.getDiagnosticCode() : seg.getDebugReason());
                 entity.setDistanceKm(seg.getDistanceKm());
                 entity.setDurationMin(seg.getDurationMin());
                 entity.setPolylineJson(toJson(seg.getCoordinates()));
