@@ -84,8 +84,8 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND, REASON_NO_ACTIVE_GRAPH, null);
         }
 
-        Optional<PoiGraphBinding> fromBinding = poiSnapService.snapPoint(cityId, from);
-        Optional<PoiGraphBinding> toBinding = poiSnapService.snapPoint(cityId, to);
+        Optional<PoiGraphBinding> fromBinding = poiSnapService.snapPoint(cityId, from, transportMode);
+        Optional<PoiGraphBinding> toBinding = poiSnapService.snapPoint(cityId, to, transportMode);
         if (fromBinding.isEmpty() || toBinding.isEmpty()) {
             log.debug("Fallback: point not snapped, cityId={}, fromPoiId={}, toPoiId={}", cityId, from.getPoiId(), to.getPoiId());
             return fallbackSegment(from, to, transportMode, STATUS_NOT_FOUND, REASON_POINT_NOT_SNAPPED, activeVersion.getId());
@@ -113,6 +113,7 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         result.setProvider(PROVIDER);
         result.setGeometrySource(SOURCE_GRAPH);
         result.setStatus(STATUS_OK);
+        result.setDiagnosticCode("GRAPH_OK");
         result.setDebugReason("GRAPH_OK");
         result.setGraphVersionId(activeVersion.getId());
         result.setCoordinates(path.coordinates());
@@ -134,7 +135,7 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         double[][] distance = new double[n][n];
         int[][] duration = new int[n][n];
 
-        Map<Long, PoiGraphBinding> bindings = poiSnapService.snapPoints(cityId, points);
+        Map<Long, PoiGraphBinding> bindings = poiSnapService.snapPoints(cityId, points, transportMode);
         RoadGraph graph;
         try {
             graph = loadGraph(cityId, transportMode);
@@ -374,6 +375,7 @@ public class GraphRoutingServiceImpl implements GraphRoutingService {
         segment.setProvider(PROVIDER);
         segment.setGeometrySource(SOURCE_FALLBACK);
         segment.setStatus(status);
+        segment.setDiagnosticCode(reason);
         segment.setDebugReason(reason);
         segment.setGraphVersionId(graphVersionId);
 

@@ -26,4 +26,26 @@ public interface RoadNodeRepository extends JpaRepository<RoadNode, Long> {
             @Param("latitude") double latitude,
             @Param("longitude") double longitude
     );
+
+    @Query(value = """
+            SELECT rn.*
+            FROM road_nodes rn
+            WHERE rn.city_id = :cityId
+              AND rn.graph_version_id = :graphVersionId
+              AND EXISTS (
+                  SELECT 1
+                  FROM road_edges re
+                  WHERE re.graph_version_id = rn.graph_version_id
+                    AND (re.from_node_id = rn.id OR re.to_node_id = rn.id)
+                    AND re.car_allowed = true
+              )
+            ORDER BY rn.geom <-> ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<RoadNode> findNearestCarNode(
+            @Param("cityId") Long cityId,
+            @Param("graphVersionId") Long graphVersionId,
+            @Param("latitude") double latitude,
+            @Param("longitude") double longitude
+    );
 }
