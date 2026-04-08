@@ -8,6 +8,7 @@ import com.travelapp.poi.model.entity.PoiType;
 import com.travelapp.poi.model.ml.*;
 import com.travelapp.poi.repository.PoiTypeRepository;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -73,11 +74,22 @@ public class MlPoiMapper {
         if (hours == null) return result;
 
         for (MlPoiHourDraft hour : hours) {
+            boolean aroundTheClock = Boolean.TRUE.equals(hour.getAroundTheClock());
+            boolean hasAnyTime = StringUtils.isNotBlank(hour.getOpenTime()) || StringUtils.isNotBlank(hour.getCloseTime());
+
+            if (hour.getDayOfWeek() == null) {
+                continue;
+            }
+
+            if (!aroundTheClock && !hasAnyTime) {
+                continue;
+            }
+
             PoiCreateRequest.HoursRequest item = new PoiCreateRequest.HoursRequest();
             item.setDayOfWeek(hour.getDayOfWeek());
             item.setOpenTime(parseLocalTime(hour.getOpenTime()));
             item.setCloseTime(parseLocalTime(hour.getCloseTime()));
-            item.setAroundTheClock(Boolean.TRUE.equals(hour.getAroundTheClock()));
+            item.setAroundTheClock(aroundTheClock);
             result.add(item);
         }
 
@@ -89,8 +101,12 @@ public class MlPoiMapper {
         if (media == null) return result;
 
         for (MlPoiMediaDraft mediaItem : media) {
+            if (mediaItem == null || StringUtils.isBlank(mediaItem.getUrl())) {
+                continue;
+            }
+
             PoiCreateRequest.MediaRequest item = new PoiCreateRequest.MediaRequest();
-            item.setUrl(mediaItem.getUrl());
+            item.setUrl(mediaItem.getUrl().trim());
             item.setMediaType(resolveMediaType(mediaItem.getMediaType()));
             result.add(item);
         }
@@ -103,9 +119,15 @@ public class MlPoiMapper {
         if (sources == null) return result;
 
         for (MlPoiSourceDraft source : sources) {
+            if (source == null
+                    || StringUtils.isBlank(source.getSourceCode())
+                    || StringUtils.isBlank(source.getSourceUrl())) {
+                continue;
+            }
+
             PoiCreateRequest.SourceRequest item = new PoiCreateRequest.SourceRequest();
-            item.setSourceCode(source.getSourceCode());
-            item.setSourceUrl(source.getSourceUrl());
+            item.setSourceCode(source.getSourceCode().trim());
+            item.setSourceUrl(source.getSourceUrl().trim());
 
             if (source.getConfidenceScore() != null) {
                 item.setConfidenceScore(BigDecimal.valueOf(source.getConfidenceScore()));

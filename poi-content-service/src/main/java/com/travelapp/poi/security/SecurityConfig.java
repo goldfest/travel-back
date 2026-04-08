@@ -54,10 +54,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.DELETE, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
 
-                        .requestMatchers(HttpMethod.GET, "/internal/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/internal/**").authenticated()
-                        .requestMatchers(HttpMethod.PUT, "/internal/**").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/internal/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/internal/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/internal/**").permitAll()
+                        .requestMatchers(HttpMethod.PUT, "/internal/**").permitAll()
+                        .requestMatchers(HttpMethod.DELETE, "/internal/**").permitAll()
 
                         .requestMatchers(HttpMethod.POST, "/poi-types").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.PUT, "/poi-types/**").hasAnyRole("ADMIN", "MODERATOR")

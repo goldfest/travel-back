@@ -49,63 +49,15 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         }
 
         Poi poi = new Poi();
-        poi.setName(request.getName());
         poi.setSlug(request.getSlug());
-        poi.setCityId(request.getCityId());
-        poi.setPoiType(poiType);
-        poi.setLatitude(request.getLatitude());
-        poi.setLongitude(request.getLongitude());
-        poi.setAddress(request.getAddress());
-        poi.setDescription(request.getDescription());
-        poi.setPhone(request.getPhone());
-        poi.setSiteUrl(request.getSiteUrl());
-        poi.setPriceLevel(request.getPriceLevel());
         poi.setCreatedBy(userId);
         poi.setIsVerified(false);
 
-        if (request.getTags() != null) {
-            poi.setTags(request.getTags());
-        }
-
-        if (request.getFeatures() != null) {
-            for (Map.Entry<String, String> e : request.getFeatures().entrySet()) {
-                PoiFeature feature = new PoiFeature();
-                feature.setKey(e.getKey());
-                feature.setValue(e.getValue());
-                poi.addFeature(feature);
-            }
-        }
-
-        if (request.getHours() != null) {
-            request.getHours().forEach(hoursRequest -> {
-                PoiHours hours = new PoiHours();
-                hours.setDayOfWeek(hoursRequest.getDayOfWeek());
-                hours.setOpenTime(hoursRequest.getOpenTime());
-                hours.setCloseTime(hoursRequest.getCloseTime());
-                hours.setAroundTheClock(hoursRequest.getAroundTheClock());
-                poi.addHours(hours);
-            });
-        }
-
-        if (request.getMedia() != null) {
-            request.getMedia().forEach(mediaRequest -> {
-                PoiMedia media = new PoiMedia();
-                media.setUrl(mediaRequest.getUrl());
-                media.setMediaType(mediaRequest.getMediaType());
-                media.setUserId(userId);
-                poi.addMedia(media);
-            });
-        }
-
-        if (request.getSources() != null) {
-            request.getSources().forEach(sourceRequest -> {
-                PoiSource source = new PoiSource();
-                source.setSourceCode(sourceRequest.getSourceCode());
-                source.setSourceUrl(sourceRequest.getSourceUrl());
-                source.setConfidenceScore(sourceRequest.getConfidenceScore());
-                poi.addSource(source);
-            });
-        }
+        applySimpleFields(poi, request, poiType);
+        replaceFeatures(poi, request.getFeatures());
+        replaceHours(poi, request.getHours());
+        replaceMedia(poi, request.getMedia(), userId);
+        appendSourcesIfMissing(poi, request.getSources());
 
         Poi saved = poiRepository.save(poi);
         log.info("POI created successfully with ID: {}", saved.getId());
@@ -151,13 +103,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         }
 
         if (request.getFeatures() != null) {
-            poi.getFeatures().clear();
-            for (Map.Entry<String, String> e : request.getFeatures().entrySet()) {
-                PoiFeature feature = new PoiFeature();
-                feature.setKey(e.getKey());
-                feature.setValue(e.getValue());
-                poi.addFeature(feature);
-            }
+            replaceFeatures(poi, request.getFeatures());
         }
 
         Poi updated = poiRepository.save(poi);
@@ -244,6 +190,19 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         PoiType poiType = poiTypeRepository.findById(request.getPoiTypeId())
                 .orElseThrow(() -> new PoiTypeNotFoundException(request.getPoiTypeId()));
 
+        // slug намеренно НЕ меняем при update from import
+        applySimpleFields(poi, request, poiType);
+
+        replaceFeatures(poi, request.getFeatures());
+        replaceHours(poi, request.getHours());
+        replaceMedia(poi, request.getMedia(), userId);
+        appendSourcesIfMissing(poi, request.getSources());
+
+        Poi updated = poiRepository.save(poi);
+        return poiMapper.toResponse(updated);
+    }
+
+    private void applySimpleFields(Poi poi, PoiCreateRequest request, PoiType poiType) {
         poi.setName(request.getName());
         poi.setCityId(request.getCityId());
         poi.setPoiType(poiType);
@@ -258,33 +217,102 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         if (request.getTags() != null) {
             poi.setTags(request.getTags());
         }
+    }
 
-        if (request.getFeatures() != null) {
-            poi.getFeatures().clear();
-            for (var e : request.getFeatures().entrySet()) {
-                PoiFeature feature = new PoiFeature();
-                feature.setKey(e.getKey());
-                feature.setValue(e.getValue());
-                poi.addFeature(feature);
-            }
+    private void replaceFeatures(Poi poi, Map<String, String> features) {
+        poi.getFeatures().clear();
+
+        if (features == null || features.isEmpty()) {
+            return;
         }
 
-        if (request.getSources() != null && !request.getSources().isEmpty()) {
-            boolean hasAnySource = poi.getSources() != null && !poi.getSources().isEmpty();
-
-            if (!hasAnySource) {
-                request.getSources().forEach(sourceRequest -> {
-                    PoiSource source = new PoiSource();
-                    source.setSourceCode(sourceRequest.getSourceCode());
-                    source.setSourceUrl(sourceRequest.getSourceUrl());
-                    source.setConfidenceScore(sourceRequest.getConfidenceScore());
-                    poi.addSource(source);
-                });
+        for (Map.Entry<String, String> e : features.entrySet()) {
+            if (StringUtils.isBlank(e.getKey())) {
+                continue;
             }
+
+            PoiFeature feature = new PoiFeature();
+            feature.setKey(e.getKey().trim());
+            feature.setValue(e.getValue());
+            poi.addFeature(feature);
+        }
+    }
+
+    private void replaceHours(Poi poi, List<PoiCreateRequest.HoursRequest> hoursRequests) {
+        poi.getHours().clear();
+
+        if (hoursRequests == null || hoursRequests.isEmpty()) {
+            return;
         }
 
-        Poi updated = poiRepository.save(poi);
-        return poiMapper.toResponse(updated);
+        for (PoiCreateRequest.HoursRequest hoursRequest : hoursRequests) {
+            if (hoursRequest == null || hoursRequest.getDayOfWeek() == null) {
+                continue;
+            }
+
+            boolean aroundTheClock = Boolean.TRUE.equals(hoursRequest.getAroundTheClock());
+            boolean hasAnyTime = hoursRequest.getOpenTime() != null || hoursRequest.getCloseTime() != null;
+
+            if (!aroundTheClock && !hasAnyTime) {
+                continue;
+            }
+
+            PoiHours hours = new PoiHours();
+            hours.setDayOfWeek(hoursRequest.getDayOfWeek());
+            hours.setOpenTime(hoursRequest.getOpenTime());
+            hours.setCloseTime(hoursRequest.getCloseTime());
+            hours.setAroundTheClock(aroundTheClock);
+            poi.addHours(hours);
+        }
+    }
+
+    private void replaceMedia(Poi poi, List<PoiCreateRequest.MediaRequest> mediaRequests, Long userId) {
+        poi.getMedia().clear();
+
+        if (mediaRequests == null || mediaRequests.isEmpty()) {
+            return;
+        }
+
+        for (PoiCreateRequest.MediaRequest mediaRequest : mediaRequests) {
+            if (mediaRequest == null || StringUtils.isBlank(mediaRequest.getUrl())) {
+                continue;
+            }
+
+            PoiMedia media = new PoiMedia();
+            media.setUrl(mediaRequest.getUrl().trim());
+            media.setMediaType(mediaRequest.getMediaType());
+            media.setUserId(userId);
+            poi.addMedia(media);
+        }
+    }
+
+    private void appendSourcesIfMissing(Poi poi, List<PoiCreateRequest.SourceRequest> sourceRequests) {
+        if (sourceRequests == null || sourceRequests.isEmpty()) {
+            return;
+        }
+
+        for (PoiCreateRequest.SourceRequest sourceRequest : sourceRequests) {
+            if (sourceRequest == null
+                    || StringUtils.isBlank(sourceRequest.getSourceCode())
+                    || StringUtils.isBlank(sourceRequest.getSourceUrl())) {
+                continue;
+            }
+
+            boolean exists = poi.getSources().stream().anyMatch(existing ->
+                    sourceRequest.getSourceCode().equalsIgnoreCase(existing.getSourceCode())
+                            && sourceRequest.getSourceUrl().equalsIgnoreCase(existing.getSourceUrl())
+            );
+
+            if (exists) {
+                continue;
+            }
+
+            PoiSource source = new PoiSource();
+            source.setSourceCode(sourceRequest.getSourceCode().trim());
+            source.setSourceUrl(sourceRequest.getSourceUrl().trim());
+            source.setConfidenceScore(sourceRequest.getConfidenceScore());
+            poi.addSource(source);
+        }
     }
 
 }

@@ -32,7 +32,7 @@ public class TwoGisClient {
                 .uri(uriBuilder -> uriBuilder
                         .path("/3.0/items")
                         .queryParam("q", query)
-                        .queryParam("fields", "items.point,items.contact_groups,items.full_address_name")
+                        .queryParam("fields", "items.point,items.contact_groups,items.full_address_name,items.schedule,items.address_comment,items.purpose_name,items.site_url,items.rubrics")
                         .queryParam("key", properties.getApiKey())
                         .build())
                 .retrieve()
@@ -45,6 +45,10 @@ public class TwoGisClient {
                 )
                 .bodyToMono(JsonNode.class)
                 .block();
+        log.info("2GIS raw response result.items size={}",
+                response != null && response.path("result").path("items").isArray()
+                        ? response.path("result").path("items").size()
+                        : -1);
 
         return parseResponse(response);
     }
@@ -53,9 +57,9 @@ public class TwoGisClient {
         List<TwoGisRawPoiDto> result = new ArrayList<>();
 
         JsonNode items = response.path("result").path("items");
-        if (!items.isArray()) {
-            log.warn("2GIS response does not contain result.items array: {}", response);
-            return result;
+        if (items.isArray() && !items.isEmpty()) {
+            log.info("2GIS raw response result.items size={}", items.size());
+            log.info("2GIS first item raw: {}", items.get(0).toPrettyString());
         }
 
         for (JsonNode item : items) {

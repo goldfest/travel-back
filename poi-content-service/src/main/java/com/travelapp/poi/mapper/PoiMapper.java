@@ -28,7 +28,11 @@ public interface PoiMapper {
     default Map<String, String> mapFeatures(Set<PoiFeature> features) {
         if (features == null) return null;
         return features.stream()
-                .collect(Collectors.toMap(PoiFeature::getKey, PoiFeature::getValue));
+                .collect(Collectors.toMap(
+                        PoiFeature::getKey,
+                        PoiFeature::getValue,
+                        (a, b) -> b
+                ));
     }
 
     default List<PoiResponse.PoiHoursResponse> mapHours(Set<PoiHours> hours) {
