@@ -8,6 +8,7 @@ import com.travelapp.poi.model.imports.twogis.TwoGisRawMediaDto;
 import com.travelapp.poi.model.imports.twogis.TwoGisRawPoiDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -29,28 +30,16 @@ public class TwoGisClient {
     public List<TwoGisRawPoiDto> search(String query, Long cityId) {
         log.info("Searching 2GIS API for query='{}', cityId={}", query, cityId);
 
-        String tempQuery = query;
+        CityExternalDto city = resolveCity(cityId);
+        String cityName = city != null ? StringUtils.trimToNull(city.getName()) : null;
+        String effectiveQuery = buildEffectiveQuery(query, cityName);
+        String requestedType = inferRequestedPoiType(query);
 
-        if (cityId != null) {
-            try {
-                CityExternalDto city = cityClient.getCityById(cityId);
-                if (city != null && city.getName() != null && !city.getName().isBlank()) {
-                    tempQuery = query + " " + city.getName().trim();
-                }
-            } catch (Exception ex) {
-                log.warn("Failed to resolve city name for cityId={}, using original query='{}'. Error={}",
-                        cityId, query, ex.getMessage());
-            }
-        }
-
-        final String effectiveQuery = tempQuery;
-
-        log.info("Effective 2GIS query='{}'", effectiveQuery);
+        log.info("Effective 2GIS query='{}', requestedType={}", effectiveQuery, requestedType);
 
         WebClient webClient = WebClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .build();
-
 
         JsonNode response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -59,6 +48,7 @@ public class TwoGisClient {
                         .queryParam("fields",
                                 "items.point," +
                                         "items.contact_groups," +
+                                        "items.address_name," +
                                         "items.full_address_name," +
                                         "items.schedule," +
                                         "items.address_comment," +
@@ -67,7 +57,9 @@ public class TwoGisClient {
                                         "items.rubrics," +
                                         "items.description," +
                                         "items.flags," +
-                                        "items.photos")
+                                        "items.photos," +
+                                        "items.subtitle," +
+                                        "items.uri")
                         .queryParam("key", properties.getApiKey())
                         .build())
                 .retrieve()
@@ -80,26 +72,57 @@ public class TwoGisClient {
                 )
                 .bodyToMono(JsonNode.class)
                 .block();
+
         log.info("2GIS raw response result.items size={}",
                 response != null && response.path("result").path("items").isArray()
                         ? response.path("result").path("items").size()
                         : -1);
 
-        return parseResponse(response);
+        return parseResponse(response, requestedType);
     }
 
-    private List<TwoGisRawPoiDto> parseResponse(JsonNode response) {
+    private CityExternalDto resolveCity(Long cityId) {
+        if (cityId == null) {
+            return null;
+        }
+
+        try {
+            return cityClient.getCityById(cityId);
+        } catch (Exception ex) {
+            log.warn("Failed to resolve city metadata for cityId={}: {}", cityId, ex.getMessage());
+            return null;
+        }
+    }
+
+    private String buildEffectiveQuery(String query, String cityName) {
+        String baseQuery = StringUtils.trimToEmpty(query);
+
+        if (StringUtils.isBlank(cityName)) {
+            return baseQuery;
+        }
+
+        if (baseQuery.toLowerCase().contains(cityName.toLowerCase())) {
+            return baseQuery;
+        }
+
+        return (baseQuery + " " + cityName).trim();
+    }
+
+    private List<TwoGisRawPoiDto> parseResponse(JsonNode response, String requestedType) {
         List<TwoGisRawPoiDto> result = new ArrayList<>();
 
         JsonNode items = response.path("result").path("items");
         if (items.isArray() && !items.isEmpty()) {
             log.info("2GIS raw response result.items size={}", items.size());
-            log.info("2GIS first item raw: {}", items.get(0).toPrettyString());
+            log.debug("2GIS first item raw: {}", items.get(0).toPrettyString());
         }
 
         for (JsonNode item : items) {
             String name = item.path("name").asText(null);
-            String address = item.path("address_name").asText(null);
+            String address = firstNonBlank(
+                    normalizeText(item.path("full_address_name").asText(null)),
+                    normalizeText(item.path("address_name").asText(null))
+            );
 
             JsonNode point = item.path("point");
             Double lat = point.has("lat") && !point.path("lat").isNull()
@@ -109,7 +132,7 @@ public class TwoGisClient {
                     ? point.path("lon").asDouble()
                     : null;
 
-            if (name == null || name.isBlank()) {
+            if (StringUtils.isBlank(name)) {
                 log.warn("Skipping 2GIS item without name: {}", item);
                 continue;
             }
@@ -119,34 +142,39 @@ public class TwoGisClient {
                 continue;
             }
 
+            String resolvedType = resolvePoiTypeCode(item);
+            if (!matchesRequestedType(requestedType, resolvedType)) {
+                log.debug("Skipping 2GIS item due to requestedType mismatch. name={}, requestedType={}, resolvedType={}",
+                        name, requestedType, resolvedType);
+                continue;
+            }
+
+            String externalId = item.path("id").asText(null);
+            String sourceUrl = normalizeSourceUrl(item, externalId);
+            List<String> rubricNames = extractRubricNames(item);
+            String purposeName = normalizeText(item.path("purpose_name").asText(null));
+            boolean hasPhotos = hasPhotosFlag(item);
+            String staticMapUrl = buildStaticMapUrlFromItem(item);
+
             TwoGisRawPoiDto dto = new TwoGisRawPoiDto();
-            dto.setExternalId(item.path("id").asText(null));
+            dto.setExternalId(externalId);
             dto.setName(name);
-            dto.setAddress(address != null ? address : "Адрес не указан");
+            dto.setAddress(address);
             dto.setLatitude(lat);
             dto.setLongitude(lon);
-
-            dto.setDescription(buildDescription(item));
+            dto.setDescription(buildDescription(item, purposeName, rubricNames, address));
             dto.setPhone(extractContactPhone(item));
             dto.setSiteUrl(extractSiteUrl(item));
             dto.setPriceLevel(0);
-            dto.setPoiTypeCode(resolvePoiTypeCode(item));
-
-            String externalId = item.path("id").asText(null);
-            dto.setExternalId(externalId);
-
-            String uri = item.path("uri").asText(null);
-
-            if (uri != null && !uri.isBlank()) {
-                dto.setSourceUrl(uri);
-            } else if (externalId != null && !externalId.isBlank()) {
-                dto.setSourceUrl("2gis:item:" + externalId);
-            } else {
-                dto.setSourceUrl(null);
-            }
+            dto.setPoiTypeCode(resolvedType);
+            dto.setSourceUrl(sourceUrl);
             dto.setFeatures(Map.of());
             dto.setHours(extractHours(item));
-            dto.setMedia(extractMedia(item));
+            dto.setMedia(extractMedia(item, staticMapUrl, hasPhotos));
+            dto.setPurposeName(purposeName);
+            dto.setRubricNames(rubricNames);
+            dto.setHasPhotos(hasPhotos);
+            dto.setStaticMapUrl(staticMapUrl);
 
             result.add(dto);
         }
@@ -224,30 +252,31 @@ public class TwoGisClient {
         return normalized;
     }
 
-    private List<TwoGisRawMediaDto> extractMedia(JsonNode item) {
+    private List<TwoGisRawMediaDto> extractMedia(JsonNode item, String staticMapUrl, boolean hasPhotos) {
         List<TwoGisRawMediaDto> result = new ArrayList<>();
 
         JsonNode photos = item.path("photos");
         if (photos.isArray()) {
             for (JsonNode photo : photos) {
-                String previewUrl = photo.path("preview_url").asText(null);
-                if (previewUrl != null && !previewUrl.isBlank()) {
+                String photoUrl = firstNonBlank(
+                        normalizeText(photo.path("preview_url").asText(null)),
+                        normalizeText(photo.path("url").asText(null)),
+                        normalizeText(photo.path("source").asText(null))
+                );
+                if (photoUrl != null) {
                     TwoGisRawMediaDto dto = new TwoGisRawMediaDto();
-                    dto.setUrl(previewUrl);
+                    dto.setUrl(photoUrl);
                     dto.setMediaType("IMAGE");
                     result.add(dto);
                 }
             }
         }
 
-        if (result.isEmpty() && hasPhotosFlag(item)) {
-            String staticMapUrl = buildStaticMapUrlFromItem(item);
-            if (staticMapUrl != null) {
-                TwoGisRawMediaDto dto = new TwoGisRawMediaDto();
-                dto.setUrl(staticMapUrl);
-                dto.setMediaType("IMAGE");
-                result.add(dto);
-            }
+        if (result.isEmpty() && hasPhotos && staticMapUrl != null) {
+            TwoGisRawMediaDto dto = new TwoGisRawMediaDto();
+            dto.setUrl(staticMapUrl);
+            dto.setMediaType("IMAGE");
+            result.add(dto);
         }
 
         return result;
@@ -257,37 +286,33 @@ public class TwoGisClient {
         return item.path("flags").path("photos").asBoolean(false);
     }
 
-    private String buildDescription(JsonNode item) {
+    private String buildDescription(JsonNode item, String purposeName, List<String> rubricNames, String address) {
         List<String> parts = new ArrayList<>();
 
-        String purpose = normalizeText(item.path("purpose_name").asText(null));
-        String subtypeName = normalizeText(item.path("subtype_name").asText(null));
-        String address = firstNonBlank(
-                normalizeText(item.path("full_address_name").asText(null)),
-                normalizeText(item.path("address_name").asText(null))
-        );
+        String description = cleanHtmlToText(item.path("description").asText(null));
+        String subtitle = normalizeText(item.path("subtitle").asText(null));
+        String siteUrl = extractSiteUrl(item);
 
-        String rawDescription = item.path("description").asText(null);
-        String description = cleanHtmlToText(rawDescription);
-
-        List<String> rubrics = extractRubricNames(item);
-
-        String typePart = firstNonBlank(purpose, subtypeName);
-
-        if (typePart != null) {
-            parts.add(typePart);
+        if (purposeName != null) {
+            parts.add(purposeName);
+        } else if (subtitle != null) {
+            parts.add(subtitle);
         }
 
-        if (!rubrics.isEmpty()) {
-            parts.add("Категории: " + String.join(", ", rubrics));
+        if (!rubricNames.isEmpty()) {
+            parts.add("Категории: " + String.join(", ", rubricNames));
+        }
+
+        if (description != null) {
+            parts.add(description);
         }
 
         if (address != null) {
             parts.add("Адрес: " + address);
         }
 
-        if (description != null) {
-            parts.add(description);
+        if (siteUrl != null) {
+            parts.add("Сайт: " + siteUrl);
         }
 
         if (parts.isEmpty()) {
@@ -314,12 +339,7 @@ public class TwoGisClient {
                 .replace("&amp;", "&");
 
         text = normalizeText(text);
-
-        if (text == null || text.isBlank()) {
-            return null;
-        }
-
-        return text;
+        return StringUtils.isBlank(text) ? null : text;
     }
 
     private String normalizeText(String value) {
@@ -337,7 +357,7 @@ public class TwoGisClient {
         }
 
         for (String value : values) {
-            if (value != null && !value.isBlank()) {
+            if (StringUtils.isNotBlank(value)) {
                 return value.trim();
             }
         }
@@ -355,7 +375,7 @@ public class TwoGisClient {
 
         for (JsonNode rubric : rubrics) {
             String name = rubric.path("name").asText(null);
-            if (name != null && !name.isBlank()) {
+            if (StringUtils.isNotBlank(name)) {
                 result.add(name.trim());
             }
         }
@@ -396,7 +416,7 @@ public class TwoGisClient {
                             JsonNode value = contact.path("value");
                             if (!value.isMissingNode() && !value.isNull()) {
                                 String phone = value.asText(null);
-                                if (phone != null && !phone.isBlank()) {
+                                if (StringUtils.isNotBlank(phone)) {
                                     return phone;
                                 }
                             }
@@ -412,30 +432,105 @@ public class TwoGisClient {
         JsonNode siteUrl = item.path("site_url");
         if (!siteUrl.isMissingNode() && !siteUrl.isNull()) {
             String value = siteUrl.asText(null);
-            if (value != null && !value.isBlank()) {
-                return value;
+            if (StringUtils.isNotBlank(value)) {
+                return value.trim();
             }
         }
         return null;
     }
 
+    private String normalizeSourceUrl(JsonNode item, String externalId) {
+        String uri = item.path("uri").asText(null);
+
+        if (StringUtils.isNotBlank(uri)) {
+            if (uri.startsWith("http://") || uri.startsWith("https://")) {
+                return uri;
+            }
+            return "https://2gis.ru" + uri;
+        }
+
+        if (StringUtils.isNotBlank(externalId)) {
+            return "2gis:item:" + externalId;
+        }
+
+        return null;
+    }
+
     private String resolvePoiTypeCode(JsonNode item) {
-        String name = item.path("name").asText("").toLowerCase();
-        String subtitle = item.path("subtitle").asText("").toLowerCase();
+        List<String> rubrics = extractRubricNames(item);
+        String text = String.join(" ",
+                StringUtils.defaultString(item.path("name").asText("")),
+                StringUtils.defaultString(item.path("subtitle").asText("")),
+                StringUtils.defaultString(item.path("purpose_name").asText("")),
+                String.join(" ", rubrics)
+        ).toLowerCase();
 
-        String text = name + " " + subtitle;
-
-        if (text.contains("ресторан") || text.contains("кафе")) {
+        if (containsAny(text, "кафе", "кофейня", "coffee")) {
+            return "cafe";
+        }
+        if (containsAny(text, "ресторан", "бар", "паб", "столовая", "пиццерия", "бургер")) {
             return "restaurant";
         }
-        if (text.contains("отель") || text.contains("гостиница") || text.contains("хостел")) {
+        if (containsAny(text, "отель", "гостиница", "хостел", "апартаменты")) {
             return "hotel";
         }
-        if (text.contains("музей") || text.contains("собор") || text.contains("театр")
-                || text.contains("памятник") || text.contains("достопримечатель")) {
+        if (containsAny(text, "парк", "сквер", "сад")) {
+            return "park";
+        }
+        if (containsAny(text, "музей", "собор", "храм", "театр", "памятник", "достопримечательность", "галерея")) {
             return "landmark";
+        }
+        if (containsAny(text, "магазин", "shop")) {
+            return "shop";
+        }
+        if (containsAny(text, "аптека")) {
+            return "pharmacy";
+        }
+        if (containsAny(text, "больница", "клиника")) {
+            return "hospital";
+        }
+        if (containsAny(text, "школа", "университет")) {
+            return "school";
+        }
+        if (containsAny(text, "банкомат", "atm")) {
+            return "atm";
         }
 
         return "landmark";
+    }
+
+    private String inferRequestedPoiType(String query) {
+        String normalized = StringUtils.defaultString(query).toLowerCase();
+
+        if (containsAny(normalized, "кафе", "кофейня")) {
+            return "cafe";
+        }
+        if (containsAny(normalized, "ресторан", "бар", "паб", "пиццерия", "фастфуд")) {
+            return "restaurant";
+        }
+        if (containsAny(normalized, "отель", "гостиница", "хостел")) {
+            return "hotel";
+        }
+        if (containsAny(normalized, "парк", "сквер", "сад")) {
+            return "park";
+        }
+        if (containsAny(normalized, "музей", "театр", "собор", "храм", "памятник", "достопримечательность")) {
+            return "landmark";
+        }
+
+        return null;
+    }
+
+    private boolean matchesRequestedType(String requestedType, String resolvedType) {
+        return requestedType == null || StringUtils.equalsIgnoreCase(requestedType, resolvedType);
+    }
+
+    private boolean containsAny(String text, String... values) {
+        for (String value : values) {
+            if (text.contains(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

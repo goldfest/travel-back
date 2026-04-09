@@ -121,17 +121,19 @@ public class MlPoiMapper {
         for (MlPoiSourceDraft source : sources) {
             if (source == null
                     || StringUtils.isBlank(source.getSourceCode())
-                    || StringUtils.isBlank(source.getSourceUrl())) {
+                    || (StringUtils.isBlank(source.getSourceUrl()) && StringUtils.isBlank(source.getExternalId()))) {
                 continue;
             }
 
             PoiCreateRequest.SourceRequest item = new PoiCreateRequest.SourceRequest();
             item.setSourceCode(source.getSourceCode().trim());
-            item.setSourceUrl(source.getSourceUrl().trim());
+            item.setSourceUrl(StringUtils.trimToNull(source.getSourceUrl()));
+            item.setExternalId(StringUtils.trimToNull(source.getExternalId()));
 
             if (source.getConfidenceScore() != null) {
                 item.setConfidenceScore(BigDecimal.valueOf(source.getConfidenceScore()));
             }
+
 
             result.add(item);
         }
@@ -143,7 +145,11 @@ public class MlPoiMapper {
         if (value == null || value.isBlank()) {
             return null;
         }
-        return LocalTime.parse(value);
+        try {
+            return LocalTime.parse(value);
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private String normalizePhone(String phone) {

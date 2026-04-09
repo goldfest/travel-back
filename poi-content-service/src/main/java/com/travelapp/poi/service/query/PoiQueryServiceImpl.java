@@ -24,6 +24,20 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -127,16 +141,14 @@ public class PoiQueryServiceImpl implements PoiQueryService {
         return poiRepository.countByPoiTypeId(poiTypeId);
     }
 
-    // ---- specification ----
-
     private Specification<Poi> buildSearchSpecification(PoiSearchRequest request) {
         return Specification.where(hasCityId(request.getCityId()))
                 .and(isVerified(request.getVerifiedOnly()))
                 .and(isNotClosed(request.getExcludeClosed()))
                 .and(hasTypeIds(request.getPoiTypeIds()))
+                .and(hasQueryTypeHint(request.getSearchQuery(), request.getPoiTypeIds()))
                 .and(hasPriceRange(request.getMinPrice(), request.getMaxPrice()))
                 .and(hasSearchQuery(request.getSearchQuery()));
-        // features сейчас заглушка у тебя — оставил как есть, лучше доделать через join/subquery
     }
 
     private Specification<Poi> hasCityId(Long cityId) {
@@ -155,6 +167,21 @@ public class PoiQueryServiceImpl implements PoiQueryService {
         return (root, query, cb) -> typeIds == null || typeIds.isEmpty() ? null : root.get("poiType").get("id").in(typeIds);
     }
 
+    private Specification<Poi> hasQueryTypeHint(String searchQuery, List<Long> explicitTypeIds) {
+        return (root, query, cb) -> {
+            if (explicitTypeIds != null && !explicitTypeIds.isEmpty()) {
+                return null;
+            }
+
+            Set<String> inferredTypeCodes = inferTypeCodes(searchQuery);
+            if (inferredTypeCodes.isEmpty()) {
+                return null;
+            }
+
+            return root.get("poiType").get("code").in(inferredTypeCodes);
+        };
+    }
+
     private Specification<Poi> hasPriceRange(Short minPrice, Short maxPrice) {
         return (root, query, cb) -> {
             if (minPrice == null && maxPrice == null) return null;
@@ -167,8 +194,9 @@ public class PoiQueryServiceImpl implements PoiQueryService {
 
     private Specification<Poi> hasSearchQuery(String searchQuery) {
         return (root, query, cb) -> {
-            if (StringUtils.isBlank(searchQuery)) return null;
-            String like = "%" + searchQuery.toLowerCase() + "%";
+            String normalizedQuery = normalizeSearchQuery(searchQuery);
+            if (StringUtils.isBlank(normalizedQuery)) return null;
+            String like = "%" + normalizedQuery.toLowerCase(Locale.ROOT) + "%";
             return cb.or(
                     cb.like(cb.lower(root.get("name")), like),
                     cb.like(cb.lower(root.get("description")), like),
@@ -178,16 +206,13 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     }
 
     private String resolveSortProperty(String sortBy) {
-        // whitelist: не даем сортировать по произвольному полю
-        String s = sortBy.trim().toLowerCase();
+        String s = sortBy.trim().toLowerCase(Locale.ROOT);
         return switch (s) {
             case "name" -> "name";
             case "price", "pricelevel" -> "priceLevel";
             default -> "name";
         };
     }
-
-    // ---- enrich ----
 
     private PoiResponse enrichPoiResponse(Poi poi) {
         return enrichPoiResponse(poi, null);
@@ -207,15 +232,37 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     }
 
     private boolean isOpenNow(Set<PoiHours> hours) {
-        int currentDay = java.time.LocalDate.now().getDayOfWeek().getValue() % 7; // 0-6 (0=Sunday)
+        int currentDay = java.time.LocalDate.now().getDayOfWeek().getValue() % 7;
+        int previousDay = (currentDay + 6) % 7;
         LocalTime currentTime = LocalTime.now();
 
         for (PoiHours hour : hours) {
+            if (Boolean.TRUE.equals(hour.getAroundTheClock()) && hour.getDayOfWeek().shortValue() == currentDay) {
+                return true;
+            }
+
+            if (hour.getOpenTime() == null || hour.getCloseTime() == null) {
+                continue;
+            }
+
+            boolean crossesMidnight = hour.getCloseTime().isBefore(hour.getOpenTime());
+
             if (hour.getDayOfWeek().shortValue() == currentDay) {
-                if (Boolean.TRUE.equals(hour.getAroundTheClock())) return true;
-                if (hour.getOpenTime() != null && hour.getCloseTime() != null) {
-                    return !currentTime.isBefore(hour.getOpenTime()) && !currentTime.isAfter(hour.getCloseTime());
+                if (!crossesMidnight
+                        && !currentTime.isBefore(hour.getOpenTime())
+                        && !currentTime.isAfter(hour.getCloseTime())) {
+                    return true;
                 }
+
+                if (crossesMidnight && !currentTime.isBefore(hour.getOpenTime())) {
+                    return true;
+                }
+            }
+
+            if (crossesMidnight
+                    && hour.getDayOfWeek().shortValue() == previousDay
+                    && !currentTime.isAfter(hour.getCloseTime())) {
+                return true;
             }
         }
         return false;
@@ -232,7 +279,8 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     @Override
     @Transactional(readOnly = true)
     public List<PoiResponse> searchByCityAndType(Long cityId, String type, Integer limit) {
-        PageRequest pageable = PageRequest.of(0, limit);
+        int pageSize = (limit == null || limit <= 0) ? 20 : limit;
+        PageRequest pageable = PageRequest.of(0, pageSize);
 
         if (type == null || type.isBlank()) {
             return poiRepository.findByCityIdAndIsVerifiedTrueAndIsClosedFalse(cityId, pageable)
@@ -251,5 +299,79 @@ public class PoiQueryServiceImpl implements PoiQueryService {
                 .stream()
                 .map(this::enrichPoiResponse)
                 .toList();
+    }
+
+    private String normalizeSearchQuery(String searchQuery) {
+        if (StringUtils.isBlank(searchQuery)) {
+            return null;
+        }
+
+        String normalized = searchQuery.toLowerCase(Locale.ROOT);
+        for (String keyword : searchableTypeKeywords()) {
+            normalized = normalized.replace(keyword, " ");
+        }
+
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private Set<String> inferTypeCodes(String searchQuery) {
+        if (StringUtils.isBlank(searchQuery)) {
+            return Set.of();
+        }
+
+        String normalized = searchQuery.toLowerCase(Locale.ROOT);
+        Set<String> result = new HashSet<>();
+
+        if (containsAny(normalized, "кафе", "кофейня")) {
+            result.add("cafe");
+        }
+        if (containsAny(normalized, "ресторан", "бар", "паб", "пиццерия", "фастфуд")) {
+            result.add("restaurant");
+        }
+        if (containsAny(normalized, "отель", "гостиница", "хостел")) {
+            result.add("hotel");
+        }
+        if (containsAny(normalized, "парк", "сквер", "сад")) {
+            result.add("park");
+        }
+        if (containsAny(normalized, "музей", "театр", "собор", "храм", "памятник", "достопримечательность")) {
+            result.add("landmark");
+        }
+
+        return result;
+    }
+
+    private List<String> searchableTypeKeywords() {
+        return List.of(
+                "кафе",
+                "кофейня",
+                "ресторан",
+                "бар",
+                "паб",
+                "пиццерия",
+                "фастфуд",
+                "отель",
+                "гостиница",
+                "хостел",
+                "парк",
+                "сквер",
+                "сад",
+                "музей",
+                "театр",
+                "собор",
+                "храм",
+                "памятник",
+                "достопримечательность"
+        );
+    }
+
+    private boolean containsAny(String text, String... values) {
+        for (String value : values) {
+            if (text.contains(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

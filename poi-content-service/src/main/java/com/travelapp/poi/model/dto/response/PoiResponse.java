@@ -88,6 +88,7 @@ public class PoiResponse {
         private Long id;
         private String sourceCode;
         private String sourceUrl;
+        private String externalId;
         private BigDecimal confidenceScore;
         private LocalDateTime createdAt;
     }

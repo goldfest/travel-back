@@ -14,6 +14,9 @@ public class MlPoiSourceDraft {
     @JsonProperty("source_url")
     private String sourceUrl;
 
+    @JsonProperty("external_id")
+    private String externalId;
+
     @JsonProperty("confidence_score")
     private Double confidenceScore;
 }

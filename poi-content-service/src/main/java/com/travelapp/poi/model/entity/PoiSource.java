@@ -27,6 +27,9 @@ public class PoiSource {
     @Column(name = "source_url", length = 500)
     private String sourceUrl;
 
+    @Column(name = "external_id", length = 255)
+    private String externalId;
+
     @Column(name = "confidence_score", precision = 3, scale = 2)
     private BigDecimal confidenceScore;
 

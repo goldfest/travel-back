@@ -293,26 +293,55 @@ public class PoiCommandServiceImpl implements PoiCommandService {
 
         for (PoiCreateRequest.SourceRequest sourceRequest : sourceRequests) {
             if (sourceRequest == null
-                    || StringUtils.isBlank(sourceRequest.getSourceCode())
-                    || StringUtils.isBlank(sourceRequest.getSourceUrl())) {
+                    || StringUtils.isBlank(sourceRequest.getSourceCode())) {
                 continue;
             }
 
-            boolean exists = poi.getSources().stream().anyMatch(existing ->
-                    sourceRequest.getSourceCode().equalsIgnoreCase(existing.getSourceCode())
-                            && sourceRequest.getSourceUrl().equalsIgnoreCase(existing.getSourceUrl())
-            );
+            PoiSource existingSource = poi.getSources().stream()
+                    .filter(existing -> hasSameSourceIdentity(existing, sourceRequest))
+                    .findFirst()
+                    .orElse(null);
 
-            if (exists) {
+            if (existingSource != null) {
+                if (StringUtils.isBlank(existingSource.getSourceUrl()) && StringUtils.isNotBlank(sourceRequest.getSourceUrl())) {
+                    existingSource.setSourceUrl(sourceRequest.getSourceUrl().trim());
+                }
+                if (StringUtils.isBlank(existingSource.getExternalId()) && StringUtils.isNotBlank(sourceRequest.getExternalId())) {
+                    existingSource.setExternalId(sourceRequest.getExternalId().trim());
+                }
+                if (sourceRequest.getConfidenceScore() != null) {
+                    existingSource.setConfidenceScore(sourceRequest.getConfidenceScore());
+                }
                 continue;
             }
 
             PoiSource source = new PoiSource();
             source.setSourceCode(sourceRequest.getSourceCode().trim());
-            source.setSourceUrl(sourceRequest.getSourceUrl().trim());
+            source.setSourceUrl(StringUtils.trimToNull(sourceRequest.getSourceUrl()));
+            source.setExternalId(StringUtils.trimToNull(sourceRequest.getExternalId()));
             source.setConfidenceScore(sourceRequest.getConfidenceScore());
             poi.addSource(source);
         }
+    }
+
+    private boolean hasSameSourceIdentity(PoiSource existing, PoiCreateRequest.SourceRequest incoming) {
+        if (existing == null || incoming == null) {
+            return false;
+        }
+
+        if (!StringUtils.equalsIgnoreCase(existing.getSourceCode(), incoming.getSourceCode())) {
+            return false;
+        }
+
+        if (StringUtils.isNotBlank(existing.getExternalId()) && StringUtils.isNotBlank(incoming.getExternalId())) {
+            return StringUtils.equalsIgnoreCase(existing.getExternalId(), incoming.getExternalId());
+        }
+
+        if (StringUtils.isNotBlank(existing.getSourceUrl()) && StringUtils.isNotBlank(incoming.getSourceUrl())) {
+            return StringUtils.equalsIgnoreCase(existing.getSourceUrl(), incoming.getSourceUrl());
+        }
+
+        return false;
     }
 
 }

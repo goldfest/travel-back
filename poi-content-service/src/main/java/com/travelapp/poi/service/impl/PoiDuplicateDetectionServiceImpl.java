@@ -29,10 +29,16 @@ public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionSe
             return Optional.empty();
         }
 
-        Optional<Poi> bySource = findBySource(request);
+        Optional<Poi> bySource = findByExternalId(request);
         if (bySource.isPresent()) {
-            log.info("Duplicate detected by source for POI name={}", request.getName());
+            log.info("Duplicate detected by externalId for POI name={}", request.getName());
             return bySource;
+        }
+
+        Optional<Poi> bySourceUrl = findBySourceUrl(request);
+        if (bySourceUrl.isPresent()) {
+            log.info("Duplicate detected by sourceUrl for POI name={}", request.getName());
+            return bySourceUrl;
         }
 
         Optional<Poi> byNameAndAddress = findByNameAndAddress(request);
@@ -50,7 +56,31 @@ public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionSe
         return Optional.empty();
     }
 
-    private Optional<Poi> findBySource(PoiCreateRequest request) {
+    private Optional<Poi> findByExternalId(PoiCreateRequest request) {
+        if (request.getSources() == null || request.getSources().isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (PoiCreateRequest.SourceRequest source : request.getSources()) {
+            if (source.getSourceCode() == null || source.getExternalId() == null
+                    || source.getSourceCode().isBlank() || source.getExternalId().isBlank()) {
+                continue;
+            }
+
+            var poiSource = poiSourceRepository.findFirstBySourceCodeAndExternalId(
+                    source.getSourceCode(),
+                    source.getExternalId()
+            );
+
+            if (poiSource.isPresent() && poiSource.get().getPoi() != null) {
+                return Optional.of(poiSource.get().getPoi());
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<Poi> findBySourceUrl(PoiCreateRequest request) {
         if (request.getSources() == null || request.getSources().isEmpty()) {
             return Optional.empty();
         }
@@ -73,6 +103,7 @@ public class PoiDuplicateDetectionServiceImpl implements PoiDuplicateDetectionSe
 
         return Optional.empty();
     }
+
 
     private Optional<Poi> findByNameAndAddress(PoiCreateRequest request) {
         if (request.getName() == null || request.getAddress() == null || request.getCityId() == null

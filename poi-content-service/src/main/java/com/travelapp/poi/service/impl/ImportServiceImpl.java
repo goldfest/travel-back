@@ -14,7 +14,7 @@ import com.travelapp.poi.model.entity.DataImportTask;
 import com.travelapp.poi.model.ml.MlEnrichResponse;
 import com.travelapp.poi.model.ml.MlStatusRecommendation;
 import com.travelapp.poi.model.ml.request.MlEnrichRawRequest;
-import com.travelapp.poi.model.ml.request.MlRawMediaDto;
+import com.travelapp.poi.model.ml.request.MlImportFromSourceRequest;
 import com.travelapp.poi.repository.DataImportTaskRepository;
 import com.travelapp.poi.service.ImportService;
 import com.travelapp.poi.service.PoiDuplicateDetectionService;
@@ -44,6 +44,12 @@ import java.util.concurrent.Executors;
 @RequiredArgsConstructor
 @Slf4j
 public class ImportServiceImpl implements ImportService {
+
+    private enum PoiImportOutcome {
+        CREATED,
+        UPDATED,
+        SKIPPED
+    }
 
     private final DataImportTaskRepository importTaskRepository;
     private final ImportTaskMapper importTaskMapper;
@@ -138,7 +144,8 @@ public class ImportServiceImpl implements ImportService {
         DataImportTask task = importTaskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Import task not found: " + taskId));
 
-        if (task.getStatus() == DataImportTask.ImportStatus.RUNNING) {
+        if (task.getStatus() == DataImportTask.ImportStatus.PENDING
+                || task.getStatus() == DataImportTask.ImportStatus.RUNNING) {
             task.fail("Cancelled by user: " + userId);
             importTaskRepository.save(task);
             log.info("Import task cancelled: {}", taskId);
@@ -354,7 +361,7 @@ public class ImportServiceImpl implements ImportService {
                 throw new IllegalArgumentException("City ID is required for Wikipedia import");
             }
 
-            var request = new com.travelapp.poi.model.ml.request.MlImportFromSourceRequest();
+            MlImportFromSourceRequest request = new MlImportFromSourceRequest();
             request.setSourceCode("WIKIPEDIA");
             request.setSourceUrl(task.getQuery());
             request.setCityId(task.getCityId());
@@ -364,32 +371,11 @@ public class ImportServiceImpl implements ImportService {
             MlEnrichResponse enrichResponse = mlPoiWorkerClient.importFromSource(request);
             found++;
 
-            if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
-                throw new RuntimeException("Invalid ML enrich response from Wikipedia import");
-            }
-
-            if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
-                log.warn("Wikipedia POI rejected by ML. taskId={}, errors={}, warnings={}",
-                        task.getId(),
-                        enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
-                        enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
-            } else {
-                var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
-
-                // уникализируем slug перед созданием
-                createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
-
-                var createdPoi = poiService.createPoi(createRequest, userId);
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, enrichResponse, task.getQuery());
+            if (outcome == PoiImportOutcome.CREATED) {
                 created++;
-
-                if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
-                    poiService.verifyPoiInternal(createdPoi.getId());
-                }
-
-                log.info("Wikipedia POI imported successfully. taskId={}, poiId={}, statusRecommendation={}",
-                        task.getId(),
-                        createdPoi.getId(),
-                        enrichResponse.getStatusRecommendation());
+            } else if (outcome == PoiImportOutcome.UPDATED) {
+                updated++;
             }
 
             task.setTotalPoiFound(found);
@@ -418,6 +404,11 @@ public class ImportServiceImpl implements ImportService {
 
             for (var rawPoi : rawPois) {
                 try {
+                    if (isTaskCancelled(task.getId())) {
+                        log.info("Stopping 2GIS import for cancelled task {}", task.getId());
+                        break;
+                    }
+
                     if (rawPoi.getName() == null || rawPoi.getName().isBlank()
                             || rawPoi.getLatitude() == null
                             || rawPoi.getLongitude() == null) {
@@ -436,48 +427,11 @@ public class ImportServiceImpl implements ImportService {
                         continue;
                     }
 
-                    if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
-                        log.warn("2GIS POI rejected by ML. taskId={}, externalId={}, errors={}, warnings={}",
-                                task.getId(),
-                                rawPoi.getExternalId(),
-                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
-                                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
-                        continue;
-                    }
-
-                    var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
-
-                    var duplicate = poiDuplicateDetectionService.findDuplicate(createRequest);
-
-                    if (duplicate.isPresent()) {
-                        var updatedPoi = poiService.updatePoiFromImport(duplicate.get().getId(), createRequest, userId);
-                        updated++;
-
-                        if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
-                            poiService.verifyPoiInternal(updatedPoi.getId());
-                        }
-
-                        log.info("2GIS POI updated from import. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
-                                task.getId(),
-                                rawPoi.getExternalId(),
-                                updatedPoi.getId(),
-                                enrichResponse.getStatusRecommendation());
-
-                    } else {
-                        createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
-
-                        var createdPoi = poiService.createPoi(createRequest, userId);
+                    PoiImportOutcome outcome = processEnrichedPoi(task, userId, enrichResponse, rawPoi.getExternalId());
+                    if (outcome == PoiImportOutcome.CREATED) {
                         created++;
-
-                        if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
-                            poiService.verifyPoiInternal(createdPoi.getId());
-                        }
-
-                        log.info("2GIS POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
-                                task.getId(),
-                                rawPoi.getExternalId(),
-                                createdPoi.getId(),
-                                enrichResponse.getStatusRecommendation());
+                    } else if (outcome == PoiImportOutcome.UPDATED) {
+                        updated++;
                     }
 
                 } catch (Exception itemEx) {
@@ -599,20 +553,46 @@ public class ImportServiceImpl implements ImportService {
             MlEnrichRawRequest enrichRequest
     ) {
         MlEnrichResponse enrichResponse = mlPoiWorkerClient.enrichRaw(enrichRequest);
+        return processEnrichedPoi(task, userId, enrichResponse, null) == PoiImportOutcome.CREATED;
+    }
 
+    private PoiImportOutcome processEnrichedPoi(
+            DataImportTask task,
+            Long userId,
+            MlEnrichResponse enrichResponse,
+            String externalId
+    ) {
         if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
             throw new RuntimeException("Invalid ML enrich response");
         }
 
         if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
-            log.warn("POI rejected by ML. taskId={}, errors={}, warnings={}",
+            log.warn("POI rejected by ML. taskId={}, externalId={}, errors={}, warnings={}",
                     task.getId(),
+                    externalId,
                     enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
                     enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
-            return false;
+            return PoiImportOutcome.SKIPPED;
         }
 
         var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
+        var duplicate = poiDuplicateDetectionService.findDuplicate(createRequest);
+
+        if (duplicate.isPresent()) {
+            var updatedPoi = poiService.updatePoiFromImport(duplicate.get().getId(), createRequest, userId);
+
+            if (MlStatusRecommendation.AUTO_PUBLISH.equals(enrichResponse.getStatusRecommendation())) {
+                poiService.verifyPoiInternal(updatedPoi.getId());
+            }
+
+            log.info("POI updated from import. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+                    task.getId(),
+                    externalId,
+                    updatedPoi.getId(),
+                    enrichResponse.getStatusRecommendation());
+            return PoiImportOutcome.UPDATED;
+        }
+
         createRequest.setSlug(slugService.makeUniqueSlug(createRequest.getSlug()));
         var createdPoi = poiService.createPoi(createRequest, userId);
 
@@ -620,12 +600,20 @@ public class ImportServiceImpl implements ImportService {
             poiService.verifyPoiInternal(createdPoi.getId());
         }
 
-        log.info("POI imported successfully. taskId={}, poiId={}, statusRecommendation={}",
+        log.info("POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
                 task.getId(),
+                externalId,
                 createdPoi.getId(),
                 enrichResponse.getStatusRecommendation());
+        return PoiImportOutcome.CREATED;
+    }
 
-        return true;
+    private boolean isTaskCancelled(Long taskId) {
+        return importTaskRepository.findById(taskId)
+                .map(task -> task.getStatus() == DataImportTask.ImportStatus.FAILED
+                        && task.getErrorMessage() != null
+                        && task.getErrorMessage().startsWith("Cancelled by user"))
+                .orElse(false);
     }
 
     private Mono<JsonNode> fetchDataFromApi(String apiUrl, String apiKey) {

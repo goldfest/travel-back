@@ -106,6 +106,9 @@ public class PoiCreateRequest {
         @Size(max = 500, message = "Source URL must be less than 500 characters")
         private String sourceUrl;
 
+        @Size(max = 255, message = "External ID must be less than 255 characters")
+        private String externalId;
+
         @DecimalMin(value = "0.0", message = "Confidence score must be between 0 and 1")
         @DecimalMax(value = "1.0", message = "Confidence score must be between 0 and 1")
         private BigDecimal confidenceScore;
