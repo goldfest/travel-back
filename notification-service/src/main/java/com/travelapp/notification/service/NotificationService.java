@@ -1,4 +1,3 @@
-// notification-service/src/main/java/com/travelapp/notification/service/NotificationService.java
 package com.travelapp.notification.service;
 
 import com.travelapp.notification.model.dto.request.CreateNotificationRequest;
@@ -35,4 +34,6 @@ public interface NotificationService {
     void sendNotificationImmediately(NotificationResponse notification);
 
     void sendBatchNotifications(List<CreateNotificationRequest> requests);
+
+    void deleteScheduledRouteNotifications(Long routeId);
 }

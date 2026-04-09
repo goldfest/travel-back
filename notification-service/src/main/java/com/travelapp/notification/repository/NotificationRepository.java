@@ -1,10 +1,10 @@
-// notification-service/src/main/java/com/travelapp/notification/repository/NotificationRepository.java
 package com.travelapp.notification.repository;
 
 import com.travelapp.notification.model.entity.Notification;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -24,8 +24,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     Page<Notification> findByUserIdAndTypeAndIsRead(Long userId, String type, Boolean isRead, Pageable pageable);
 
-    List<Notification> findByIsReadFalseAndScheduledAtBefore(LocalDateTime dateTime);
-
     List<Notification> findByUserIdAndIsReadFalse(Long userId);
 
     Long countByUserIdAndIsReadFalse(Long userId);
@@ -38,13 +36,14 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     Optional<Notification> findByIdAndUserId(Long id, Long userId);
 
+    Optional<Notification> findByEventKey(String eventKey);
+
     void deleteByUserId(Long userId);
 
-    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND n.scheduledAt IS NOT NULL AND n.scheduledAt <= :now AND (n.sentAt IS NULL OR n.sentAt < n.scheduledAt)")
-    List<Notification> findScheduledNotificationsReadyForSending(
-            @Param("userId") Long userId,
-            @Param("now") LocalDateTime now);
-    @Query("SELECT n FROM Notification n " +
-            "WHERE n.scheduledAt IS NOT NULL AND n.scheduledAt <= :now AND n.sentAt IS NULL")
+    @Query("SELECT n FROM Notification n WHERE n.scheduledAt IS NOT NULL AND n.scheduledAt <= :now AND n.sentAt IS NULL AND n.status = 'PENDING'")
     List<Notification> findScheduledReady(@Param("now") LocalDateTime now);
+
+    @Modifying
+    @Query("DELETE FROM Notification n WHERE n.routeId = :routeId AND n.type IN :types AND n.status IN ('PENDING','SENT')")
+    void deleteByRouteIdAndTypes(@Param("routeId") Long routeId, @Param("types") List<String> types);
 }

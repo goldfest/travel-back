@@ -49,6 +49,7 @@ public class RouteServiceImpl implements RouteService {
     private final RoutePathCacheService routePathCacheService;
     private final GraphVersionService graphVersionService;
     private final RouteGraphPreparationCoordinator routeGraphPreparationCoordinator;
+    private final com.travelapp.route.service.RouteNotificationService routeNotificationService;
 
     @Override
     @Transactional
@@ -68,18 +69,15 @@ public class RouteServiceImpl implements RouteService {
         populateRouteDays(route, request.getDays(), poiMap);
 
         if (Boolean.TRUE.equals(request.getAutoOptimize())) {
-            route.setIsOptimized(true);
-            route.setOptimizationMode(request.getOptimizationMode());
-            
-RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
-optimizationRequest.setOptimizationMode(request.getOptimizationMode());
-route = optimizationService.optimizeRoute(route, optimizationRequest);
+            log.warn("Auto optimize on route creation is skipped because daySettings/visit durations are not provided yet");
+            route.setIsOptimized(false);
         }
 
         Route savedRoute = routeRepository.save(route);
 
         if (!hasAnyPoints(savedRoute)) {
             RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            routeNotificationService.notifyRouteCreated(savedRoute);
             log.info("Route created successfully without points cache rebuild: {}", savedRoute.getId());
             return response;
         }
@@ -91,6 +89,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
 
             RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
             response.addAdditionalProperty("buildMessage", "Маршрут строится, подождите");
+            routeNotificationService.notifyRouteCreated(savedRoute);
             log.info("Route {} saved in GRAPH_PREPARING for city {}", savedRoute.getId(), savedRoute.getCityId());
             return response;
         }
@@ -103,6 +102,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         savedRoute = routeRepository.save(savedRoute);
 
         RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+        routeNotificationService.notifyRouteCreated(savedRoute);
         log.info("Route created successfully: {}", savedRoute.getId());
         return response;
     }
@@ -206,7 +206,9 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
     @Transactional
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public void deleteRoute(Long userId, Long routeId) {
-        routeRepository.delete(getOwnedRoute(userId, routeId));
+        Route route = getOwnedRoute(userId, routeId);
+        routeNotificationService.deleteRouteNotifications(route);
+        routeRepository.delete(route);
     }
 
     @Override
@@ -393,6 +395,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
 
         recalculateRouteMetrics(saved);
         saved = routeRepository.save(saved);
+        routeNotificationService.rescheduleOptimizedRouteNotifications(saved);
 
         return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
@@ -823,7 +826,11 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         routePointRepository.saveAll(orderedPoints);
         routePointRepository.flush();
 
-        day.getRoutePoints().clear();
-        day.getRoutePoints().addAll(orderedPoints);
+        for (int i = 0; i < orderedPoints.size(); i++) {
+            RoutePoint point = orderedPoints.get(i);
+            if (i < day.getRoutePoints().size()) {
+                day.getRoutePoints().set(i, point);
+            }
+        }
     }
 }

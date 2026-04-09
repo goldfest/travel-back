@@ -185,25 +185,6 @@ services:
     #   - "5435:5432"
 
   # =========================
-  # RABBITMQ
-  # =========================
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: travel-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    healthcheck:
-      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-    networks: [travel-net]
-
-  # =========================
   # NOTIFICATION SERVICE
   # =========================
   notification-service:
@@ -213,8 +194,6 @@ services:
     container_name: notification-service
     depends_on:
       notification-db:
-        condition: service_healthy
-      rabbitmq:
         condition: service_healthy
       redis-core:
         condition: service_started
@@ -230,11 +209,6 @@ services:
 
       REDIS_HOST: redis-core
       REDIS_PORT: 6379
-
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: guest
-      RABBITMQ_PASSWORD: guest
 
       NOTIFICATION_EMAIL_ENABLED: "false"
       MAIL_USERNAME: ""
