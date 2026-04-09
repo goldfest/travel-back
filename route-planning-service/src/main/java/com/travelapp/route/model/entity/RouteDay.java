@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -26,6 +27,9 @@ public class RouteDay {
 
     @Column(name = "day_number", nullable = false)
     private Short dayNumber;
+
+    @Column(name = "route_date")
+    private LocalDate routeDate;
 
     @Column(name = "planned_start")
     private LocalDateTime plannedStart;
@@ -51,7 +55,6 @@ public class RouteDay {
     @OneToOne(mappedBy = "routeDay", cascade = CascadeType.ALL, orphanRemoval = true)
     private RouteDayPath dayPath;
 
-    // Helper methods
     public void addRoutePoint(RoutePoint routePoint) {
         routePoints.add(routePoint);
         routePoint.setRouteDay(this);
@@ -74,6 +77,6 @@ public class RouteDay {
         if (plannedStart != null && plannedEnd != null) {
             return plannedEnd.getHour() - plannedStart.getHour();
         }
-        return 8; // Default 8 hours
+        return 8;
     }
 }

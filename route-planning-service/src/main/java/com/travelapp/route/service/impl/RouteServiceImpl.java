@@ -4,11 +4,7 @@ import com.travelapp.route.client.PoiClient;
 import com.travelapp.route.exception.ResourceNotFoundException;
 import com.travelapp.route.exception.RouteValidationException;
 import com.travelapp.route.mapper.RouteMapper;
-import com.travelapp.route.model.dto.request.RouteCreateRequest;
-import com.travelapp.route.model.dto.request.RouteDayCreateRequest;
-import com.travelapp.route.model.dto.request.RouteGenerateRequest;
-import com.travelapp.route.model.dto.request.RoutePointCreateRequest;
-import com.travelapp.route.model.dto.request.RouteUpdateRequest;
+import com.travelapp.route.model.dto.request.*;
 import com.travelapp.route.model.dto.response.PoiResponse;
 import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.model.entity.Route;
@@ -74,7 +70,10 @@ public class RouteServiceImpl implements RouteService {
         if (Boolean.TRUE.equals(request.getAutoOptimize())) {
             route.setIsOptimized(true);
             route.setOptimizationMode(request.getOptimizationMode());
-            route = optimizationService.optimizeRoute(route, request.getOptimizationMode());
+            
+RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
+optimizationRequest.setOptimizationMode(request.getOptimizationMode());
+route = optimizationService.optimizeRoute(route, optimizationRequest);
         }
 
         Route savedRoute = routeRepository.save(route);
@@ -346,12 +345,17 @@ public class RouteServiceImpl implements RouteService {
         Map<Long, RoutePoint> pointMap = points.stream()
                 .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
 
+        List<RoutePoint> reordered = new ArrayList<>();
         for (int i = 0; i < pointIdsInOrder.size(); i++) {
-            pointMap.get(pointIdsInOrder.get(i)).setOrderIndex((short) (i + 1));
+            RoutePoint point = pointMap.get(pointIdsInOrder.get(i));
+            point.setOrderIndex((short) (i + 1));
+            reordered.add(point);
         }
 
-        day.getRoutePoints().sort(Comparator.comparingInt(RoutePoint::getOrderIndex));
-        routePointRepository.saveAll(points);
+        day.getRoutePoints().clear();
+        day.getRoutePoints().addAll(reordered);
+
+        persistDayPointOrderSafely(day);
 
         Route saved = routeRepository.save(route);
 
@@ -368,13 +372,20 @@ public class RouteServiceImpl implements RouteService {
     @Override
     @Transactional
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
-    public RouteResponse optimizeRoute(Long userId, Long routeId, String optimizationMode) {
+    public RouteResponse optimizeRoute(Long userId, Long routeId, RouteOptimizationRequest request) {
         Route route = getOwnedRoute(userId, routeId);
-        route.setOptimizationMode(optimizationMode);
+        RouteOptimizationRequest payload = request != null ? request : new RouteOptimizationRequest();
+        String mode = payload.getOptimizationMode() != null ? payload.getOptimizationMode() : "TIME_WINDOW";
+        route.setOptimizationMode(mode);
         route.setIsOptimized(true);
 
-        Route optimizedRoute = optimizationService.optimizeRoute(route, optimizationMode);
-        Route saved = routeRepository.save(optimizedRoute);
+        Route optimizedRoute = optimizationService.optimizeRoute(route, payload);
+
+        for (RouteDay day : optimizedRoute.getRouteDays()) {
+            persistDayPointOrderSafely(day);
+        }
+
+        Route saved = routeRepository.saveAndFlush(optimizedRoute);
 
         routePathCacheService.rebuildRoutePaths(saved.getId());
         saved = routeRepository.findById(saved.getId())
@@ -458,9 +469,10 @@ public class RouteServiceImpl implements RouteService {
         RouteResponse response = createRoute(userId, createRequest);
 
         if (Boolean.TRUE.equals(request.getOptimize())) {
-            return optimizeRoute(userId, response.getId(), "TIME");
+            RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
+            optimizationRequest.setOptimizationMode("TIME_WINDOW");
+            return optimizeRoute(userId, response.getId(), optimizationRequest);
         }
-
         return response;
     }
 
@@ -476,8 +488,12 @@ public class RouteServiceImpl implements RouteService {
     }
 
     private Route getOwnedRoute(Long userId, Long routeId) {
-        return routeRepository.findByUserIdAndId(userId, routeId)
+        Route route = routeRepository.findFullByIdAndUserId(routeId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+
+        route.getRouteDays().forEach(day -> day.getRoutePoints().size());
+
+        return route;
     }
 
     private boolean hasAnyPoints(Route route) {
@@ -787,5 +803,27 @@ public class RouteServiceImpl implements RouteService {
         RouteResponse response = routeMapper.toResponse(route);
         response.setWarnings(warnings);
         return response;
+    }
+
+    private void persistDayPointOrderSafely(RouteDay day) {
+        List<RoutePoint> orderedPoints = day.getRoutePoints().stream()
+                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
+                .toList();
+
+        short tempBase = 1000;
+        for (int i = 0; i < orderedPoints.size(); i++) {
+            orderedPoints.get(i).setOrderIndex((short) (tempBase + i + 1));
+        }
+        routePointRepository.saveAll(orderedPoints);
+        routePointRepository.flush();
+
+        for (int i = 0; i < orderedPoints.size(); i++) {
+            orderedPoints.get(i).setOrderIndex((short) (i + 1));
+        }
+        routePointRepository.saveAll(orderedPoints);
+        routePointRepository.flush();
+
+        day.getRoutePoints().clear();
+        day.getRoutePoints().addAll(orderedPoints);
     }
 }

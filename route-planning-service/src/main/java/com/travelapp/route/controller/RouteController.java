@@ -107,13 +107,20 @@ public class RouteController {
         Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(routeService.reorderRouteDayPoints(userId, routeId, dayId, request.getRoutePointIdsInOrder()));
     }
+
     @PostMapping("/{id}/optimize")
     public ResponseEntity<RouteResponse> optimizeRoute(
             @PathVariable Long id,
-            @RequestParam(defaultValue = "TIME") String optimizationMode
+            @RequestBody(required = false) RouteOptimizationRequest request
     ) {
         Long userId = SecurityUtils.requireUserId();
-        return ResponseEntity.ok(routeService.optimizeRoute(userId, id, optimizationMode));
+
+        RouteOptimizationRequest payload = request != null ? request : new RouteOptimizationRequest();
+        if (payload.getOptimizationMode() == null || payload.getOptimizationMode().isBlank()) {
+            payload.setOptimizationMode("TIME_WINDOW");
+        }
+
+        return ResponseEntity.ok(routeService.optimizeRoute(userId, id, payload));
     }
 
     @GetMapping("/count")

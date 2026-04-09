@@ -48,7 +48,6 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
         select distinct r
         from Route r
         left join fetch r.routeDays d
-        left join fetch d.routePoints p
         where r.id = :id and r.userId = :userId
     """)
     Optional<Route> findFullByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);

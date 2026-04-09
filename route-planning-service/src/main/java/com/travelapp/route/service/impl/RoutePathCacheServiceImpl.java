@@ -51,7 +51,6 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                 .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         CityGraphVersion activeVersion = graphVersionService.getActiveVersionOrThrow(route.getCityId());
-        invalidateRoutePaths(routeId);
 
         for (RouteDay day : route.getRouteDays()) {
             List<RoutePoint> points = day.getRoutePoints().stream()
@@ -95,7 +94,10 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
                     fallbackReasons.isBlank() ? "-" : fallbackReasons,
                     result.getGraphVersionId());
 
-            RouteDayPath dayPath = new RouteDayPath();
+            routeSegmentPathRepository.deleteByRouteDayId(day.getId());
+
+            RouteDayPath dayPath = routeDayPathRepository.findByRouteDayId(day.getId())
+                    .orElseGet(RouteDayPath::new);
             dayPath.setRouteDay(day);
             dayPath.setGraphVersion(activeVersion);
             dayPath.setTransportMode(route.getTransportMode());
@@ -105,7 +107,7 @@ public class RoutePathCacheServiceImpl implements RoutePathCacheService {
             dayPath.setDurationMin(result.getTotalDurationMin());
             dayPath.setBuiltAt(LocalDateTime.now());
             dayPath.setPolylineJson(toJson(result.getDayCoordinates()));
-            routeDayPathRepository.save(dayPath);
+            routeDayPathRepository.saveAndFlush(dayPath);
 
             short order = 1;
             for (RoutingSegmentResult seg : result.getSegments()) {

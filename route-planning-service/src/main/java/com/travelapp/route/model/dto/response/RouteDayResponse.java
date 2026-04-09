@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
@@ -18,6 +19,10 @@ public class RouteDayResponse {
 
     @Schema(description = "Номер дня", example = "1")
     private Short dayNumber;
+
+    @Schema(description = "Дата дня")
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate routeDate;
 
     @Schema(description = "Планируемое время начала")
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
