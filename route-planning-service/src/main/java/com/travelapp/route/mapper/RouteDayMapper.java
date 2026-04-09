@@ -2,7 +2,10 @@ package com.travelapp.route.mapper;
 
 import com.travelapp.route.model.dto.response.RouteDayResponse;
 import com.travelapp.route.model.entity.RouteDay;
-import org.mapstruct.*;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.Named;
+import org.mapstruct.ReportingPolicy;
 
 import java.time.LocalTime;
 import java.util.List;

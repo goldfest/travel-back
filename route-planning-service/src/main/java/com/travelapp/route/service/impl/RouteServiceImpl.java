@@ -4,11 +4,7 @@ import com.travelapp.route.client.PoiClient;
 import com.travelapp.route.exception.ResourceNotFoundException;
 import com.travelapp.route.exception.RouteValidationException;
 import com.travelapp.route.mapper.RouteMapper;
-import com.travelapp.route.model.dto.request.RouteCreateRequest;
-import com.travelapp.route.model.dto.request.RouteDayCreateRequest;
-import com.travelapp.route.model.dto.request.RouteGenerateRequest;
-import com.travelapp.route.model.dto.request.RoutePointCreateRequest;
-import com.travelapp.route.model.dto.request.RouteUpdateRequest;
+import com.travelapp.route.model.dto.request.*;
 import com.travelapp.route.model.dto.response.PoiResponse;
 import com.travelapp.route.model.dto.response.RouteResponse;
 import com.travelapp.route.model.entity.Route;
@@ -33,7 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -74,7 +74,10 @@ public class RouteServiceImpl implements RouteService {
         if (Boolean.TRUE.equals(request.getAutoOptimize())) {
             route.setIsOptimized(true);
             route.setOptimizationMode(request.getOptimizationMode());
-            route = optimizationService.optimizeRoute(route, request.getOptimizationMode());
+            
+        RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
+        optimizationRequest.setOptimizationMode(request.getOptimizationMode());
+        route = optimizationService.optimizeRoute(route, optimizationRequest);
         }
 
         Route savedRoute = routeRepository.save(route);
@@ -368,23 +371,33 @@ public class RouteServiceImpl implements RouteService {
     @Override
     @Transactional
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
-    public RouteResponse optimizeRoute(Long userId, Long routeId, String optimizationMode) {
+    public RouteResponse optimizeRoute(Long userId, Long routeId, RouteOptimizationRequest request) {
         Route route = getOwnedRoute(userId, routeId);
-        route.setOptimizationMode(optimizationMode);
+        RouteOptimizationRequest payload = request != null ? request : new RouteOptimizationRequest();
+        String mode = payload.getOptimizationMode() != null ? payload.getOptimizationMode() : "TIME_WINDOW";
+        route.setOptimizationMode(mode);
         route.setIsOptimized(true);
 
-        Route optimizedRoute = optimizationService.optimizeRoute(route, optimizationMode);
-        Route saved = routeRepository.save(optimizedRoute);
+        optimizationService.optimizeRoute(route, payload);
+        routeRepository.saveAndFlush(route);
 
-        routePathCacheService.rebuildRoutePaths(saved.getId());
-        saved = routeRepository.findById(saved.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+        if (hasAnyPoints(route) && graphVersionService.hasActiveVersion(route.getCityId())) {
+            routePathCacheService.rebuildRoutePaths(route.getId());
+        }
 
-        recalculateRouteMetrics(saved);
-        saved = routeRepository.save(saved);
+        Route reloaded = routeRepository.findFullByIdAndUserId(route.getId(), userId)
+                .orElse(route);
+        recalculateRouteMetrics(reloaded);
+        routeRepository.saveAndFlush(reloaded);
 
-        return toResponseWithWarnings(saved, buildWarnings(saved, null));
+        return toResponseWithWarnings(reloaded, buildWarnings(reloaded, null));
     }
+
+    private Route getOwnedRoute(Long userId, Long routeId) {
+        return routeRepository.findFullByIdAndUserId(routeId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
+    }
+
 
     @Override
     @Transactional
@@ -458,9 +471,10 @@ public class RouteServiceImpl implements RouteService {
         RouteResponse response = createRoute(userId, createRequest);
 
         if (Boolean.TRUE.equals(request.getOptimize())) {
-            return optimizeRoute(userId, response.getId(), "TIME");
+            RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
+            optimizationRequest.setOptimizationMode("TIME_WINDOW");
+            return optimizeRoute(userId, response.getId(), optimizationRequest);
         }
-
         return response;
     }
 
@@ -473,11 +487,6 @@ public class RouteServiceImpl implements RouteService {
     @Override
     public boolean isRouteNameAvailable(Long userId, String name) {
         return !routeRepository.existsByUserIdAndNameAndStatusNot(userId, name, Route.RouteStatus.ARCHIVED);
-    }
-
-    private Route getOwnedRoute(Long userId, Long routeId) {
-        return routeRepository.findByUserIdAndId(userId, routeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
     }
 
     private boolean hasAnyPoints(Route route) {
@@ -753,6 +762,30 @@ public class RouteServiceImpl implements RouteService {
 
     private List<String> buildWarnings(Route route, Map<Long, PoiResponse> poiMap) {
         List<String> warnings = new ArrayList<>();
+        Map<Long, PoiResponse> resolvedPoiMap = poiMap != null ? new HashMap<>(poiMap) : new HashMap<>();
+
+        List<Long> missingPoiIds = route.getRouteDays().stream()
+                .flatMap(day -> day.getRoutePoints().stream())
+                .map(RoutePoint::getPoiId)
+                .filter(Objects::nonNull)
+                .filter(id -> !resolvedPoiMap.containsKey(id))
+                .distinct()
+                .toList();
+
+        if (!missingPoiIds.isEmpty()) {
+            try {
+                List<PoiResponse> pois = poiClient.getPoisBatch(missingPoiIds);
+                if (pois != null) {
+                    for (PoiResponse poi : pois) {
+                        if (poi != null && poi.getId() != null) {
+                            resolvedPoiMap.put(poi.getId(), poi);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load POIs for warning analysis", e);
+            }
+        }
 
         for (RouteDay day : route.getRouteDays()) {
             int dayDuration = day.getRoutePoints().stream()
@@ -768,19 +801,92 @@ public class RouteServiceImpl implements RouteService {
                 warnings.add("День " + day.getDayNumber() + " перегружен: около " + dayDuration + " минут");
             }
 
+            LocalDate routeDate = day.getPlannedStart() != null
+                    ? day.getPlannedStart().toLocalDate()
+                    : (day.getPlannedEnd() != null ? day.getPlannedEnd().toLocalDate() : null);
+            LocalTime dayStart = day.getPlannedStart() != null ? day.getPlannedStart().toLocalTime() : LocalTime.of(9, 0);
+            LocalTime dayEnd = day.getPlannedEnd() != null ? day.getPlannedEnd().toLocalTime() : LocalTime.of(18, 0);
+
             List<RoutePoint> points = day.getRoutePoints().stream()
                     .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
                     .toList();
 
             for (RoutePoint point : points) {
-                PoiResponse poi = poiMap != null ? poiMap.get(point.getPoiId()) : null;
+                PoiResponse poi = resolvedPoiMap.get(point.getPoiId());
                 if (poi != null && Boolean.TRUE.equals(poi.getIsClosed())) {
                     warnings.add("POI \"" + poi.getName() + "\" отмечен как закрытый");
+                    continue;
+                }
+                if (poi == null || routeDate == null || point.getPlannedArrivalAt() == null || point.getPlannedDepartureAt() == null) {
+                    continue;
+                }
+
+                boolean withinWindow = isVisitWithinOpeningHours(poi, routeDate, dayStart, dayEnd, point.getPlannedArrivalAt(), point.getPlannedDepartureAt());
+                if (!withinWindow) {
+                    warnings.add("День " + day.getDayNumber() + ": \"" + Optional.ofNullable(point.getPoiName()).orElse("POI " + point.getPoiId()) + "\" выходит за рамки графика работы");
                 }
             }
         }
 
         return warnings;
+    }
+
+    private boolean isVisitWithinOpeningHours(PoiResponse poi, LocalDate routeDate, LocalTime dayStart, LocalTime dayEnd,
+                                              LocalDateTime arrival, LocalDateTime departure) {
+        if (poi == null || Boolean.TRUE.equals(poi.getIsClosed())) {
+            return false;
+        }
+        if (poi.getHours() == null || poi.getHours().isEmpty()) {
+            return !departure.isAfter(routeDate.atTime(dayEnd));
+        }
+
+        DayOfWeek dayOfWeek = routeDate.getDayOfWeek();
+        LocalDateTime dayOpen = routeDate.atTime(dayStart);
+        LocalDateTime dayClose = routeDate.atTime(dayEnd);
+
+        for (PoiResponse.PoiHoursDto hours : poi.getHours()) {
+            if (hours == null || hours.getDayOfWeek() == null) {
+                continue;
+            }
+            int apiDay = hours.getDayOfWeek();
+            if (apiDay != dayOfWeek.getValue() && apiDay != (dayOfWeek.getValue() % 7)) {
+                continue;
+            }
+            if (Boolean.TRUE.equals(hours.getAroundTheClock())) {
+                return !arrival.isBefore(dayOpen) && !departure.isAfter(dayClose);
+            }
+            LocalTime openTime = parseWarningLocalTime(String.valueOf(hours.getOpenTime())).orElse(dayStart);
+            LocalTime closeTime = parseWarningLocalTime(String.valueOf(hours.getCloseTime())).orElse(dayEnd);
+            LocalDateTime openAt = routeDate.atTime(openTime);
+            LocalDateTime closeAt = routeDate.atTime(closeTime);
+            if (!closeAt.isAfter(openAt)) {
+                closeAt = closeAt.plusDays(1);
+            }
+            LocalDateTime effectiveOpen = openAt.isAfter(dayOpen) ? openAt : dayOpen;
+            LocalDateTime effectiveClose = closeAt.isBefore(dayClose) ? closeAt : dayClose;
+            if (!effectiveClose.isAfter(effectiveOpen)) {
+                continue;
+            }
+            if (!arrival.isBefore(effectiveOpen) && !departure.isAfter(effectiveClose)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Optional<LocalTime> parseWarningLocalTime(String value) {
+        if (value == null || value.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(LocalTime.parse(value));
+        } catch (DateTimeParseException e) {
+            try {
+                return Optional.of(LocalTime.parse(value.length() >= 5 ? value.substring(0, 5) : value));
+            } catch (Exception ignored) {
+                return Optional.empty();
+            }
+        }
     }
 
     private RouteResponse toResponseWithWarnings(Route route, List<String> warnings) {

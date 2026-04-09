@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.time.LocalTime;
+import java.util.List;
+
 @Data
 @Schema(description = "Ответ с информацией о POI")
 public class PoiResponse {
@@ -38,11 +41,23 @@ public class PoiResponse {
     @JsonProperty("poiType")
     private PoiTypeDto poiType;
 
+    @JsonProperty("hours")
+    private List<PoiHoursDto> hours;
+
     @Data
     public static class PoiTypeDto {
         private Long id;
         private String code;
         private String name;
         private String icon;
+    }
+
+    @Data
+    public static class PoiHoursDto {
+        private Integer dayOfWeek;
+        private LocalTime openTime;
+        private LocalTime closeTime;
+        private Boolean aroundTheClock;
+        private Boolean closed;
     }
 }

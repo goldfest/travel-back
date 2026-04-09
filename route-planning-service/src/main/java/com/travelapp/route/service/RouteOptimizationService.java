@@ -1,6 +1,7 @@
 package com.travelapp.route.service;
 
 import com.travelapp.route.client.PoiClient;
+import com.travelapp.route.model.dto.request.RouteOptimizationRequest;
 import com.travelapp.route.model.dto.response.PoiResponse;
 import com.travelapp.route.model.dto.routing.RoutingPoint;
 import com.travelapp.route.model.dto.routing.TravelMatrixResult;
@@ -11,65 +12,80 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class RouteOptimizationService {
 
-    private static final String MODE_TIME = "TIME";
-    private static final String MODE_DISTANCE = "DISTANCE";
+    private static final String MODE_TIME_WINDOW = "TIME_WINDOW";
+    private static final String MODE_USER_ORDER = "USER_ORDER";
+    private static final int DEFAULT_VISIT_MINUTES = 60;
 
     private final PoiClient poiClient;
     private final RoutingProvider routingProvider;
 
-    public Route optimizeRoute(Route route, String optimizationMode) {
-        String mode = normalizeMode(optimizationMode);
+    public Route optimizeRoute(Route route, RouteOptimizationRequest request) {
+        RouteOptimizationRequest payload = request != null ? request : new RouteOptimizationRequest();
+        String mode = normalizeMode(payload.getOptimizationMode());
+        Map<Long, Integer> visitOverrides = payload.getVisitMinutesByRoutePointId() != null
+                ? payload.getVisitMinutesByRoutePointId()
+                : Map.of();
+        Map<Long, RouteOptimizationRequest.RouteOptimizationDayRequest> daySettings = payload.getDaySettings() == null
+                ? Map.of()
+                : payload.getDaySettings().stream()
+                .filter(Objects::nonNull)
+                .filter(day -> day.getRouteDayId() != null)
+                .collect(Collectors.toMap(RouteOptimizationRequest.RouteOptimizationDayRequest::getRouteDayId, day -> day, (a, b) -> b));
 
-        for (RouteDay day : route.getRouteDays()) {
-            if (day.getRoutePoints() == null || day.getRoutePoints().size() <= 2) {
-                updateOrderIndices(day);
-                continue;
-            }
+        LocalDate baseDate = resolveBaseDate(route, daySettings);
 
-            List<RoutePoint> points = day.getRoutePoints().stream()
+        for (RouteDay day : route.getRouteDays().stream().sorted(Comparator.comparing(RouteDay::getDayNumber)).toList()) {
+            RouteOptimizationRequest.RouteOptimizationDayRequest dayRequest = day.getId() != null ? daySettings.get(day.getId()) : null;
+            applyDayIdentity(day, baseDate, dayRequest);
+
+            List<RoutePoint> orderedPoints = day.getRoutePoints().stream()
                     .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
-                    .toList();
+                    .collect(Collectors.toCollection(ArrayList::new));
 
-            hydrateCoordinates(points);
-
-            List<RoutePoint> optimizable = new ArrayList<>(points);
-            RoutePoint fixedStart = optimizable.remove(0);
-            RoutePoint fixedEnd = optimizable.remove(optimizable.size() - 1);
-
-            if (optimizable.isEmpty()) {
-                updateOrderIndices(day);
+            if (orderedPoints.isEmpty()) {
+                applyDayWindow(day, dayRequest);
                 continue;
             }
 
-            List<RoutingPoint> routingPoints = optimizable.stream()
-                    .map(point -> new RoutingPoint(
-                            point.getId(),
-                            point.getPoiId(),
-                            safeLatitude(point),
-                            safeLongitude(point)
-                    ))
-                    .toList();
+            visitOverrides.forEach((routePointId, minutes) -> {
+                if (minutes == null || minutes <= 0) {
+                    return;
+                }
+                orderedPoints.stream()
+                        .filter(point -> routePointId.equals(point.getId()))
+                        .findFirst()
+                        .ifPresent(point -> point.setEstimatedVisitMinutes(minutes));
+            });
 
-            TravelMatrixResult matrix = routingProvider.buildMatrix(route.getCityId(), routingPoints, route.getTransportMode());
-            int[] order = buildBestOrder(matrix, mode);
+            hydrateCoordinates(orderedPoints);
+            Map<Long, PoiResponse> poiMap = loadPoiDetails(orderedPoints);
 
-            List<RoutePoint> reordered = new ArrayList<>(points.size());
-            reordered.add(fixedStart);
-            for (int index : order) {
-                reordered.add(optimizable.get(index));
-            }
-            reordered.add(fixedEnd);
+            List<RoutePoint> optimizedPoints = MODE_USER_ORDER.equals(mode)
+                    ? new ArrayList<>(orderedPoints)
+                    : reorderByFastestOpenPath(route, orderedPoints, day, dayRequest, poiMap);
 
-            day.getRoutePoints().clear();
-            day.getRoutePoints().addAll(reordered);
-            updateOrderIndices(day);
+            replaceDayPoints(day, optimizedPoints);
+            scheduleDay(day, dayRequest, route.getCityId(), route.getTransportMode(), poiMap);
         }
 
         route.setIsOptimized(true);
@@ -77,45 +93,296 @@ public class RouteOptimizationService {
         return route;
     }
 
-    private int[] buildBestOrder(TravelMatrixResult matrix, String mode) {
-        int n = matrix.getDurationMin().length;
-        if (n <= 1) {
-            return buildIdentity(n);
+    private void replaceDayPoints(RouteDay day, List<RoutePoint> optimizedPoints) {
+        day.getRoutePoints().clear();
+        short order = 1;
+        for (RoutePoint point : optimizedPoints) {
+            point.setOrderIndex(order++);
+            point.setRouteDay(day);
+            day.getRoutePoints().add(point);
         }
-        if (n <= 10) {
-            return exactHeldKarpOpenPath(matrix, mode);
-        }
-        return twoOpt(nearestNeighborOrder(matrix, mode), matrix, mode);
     }
 
-    private int[] exactHeldKarpOpenPath(TravelMatrixResult matrix, String mode) {
+    private LocalDate resolveBaseDate(Route route, Map<Long, RouteOptimizationRequest.RouteOptimizationDayRequest> daySettings) {
+        Optional<LocalDate> explicit = daySettings.values().stream()
+                .map(RouteOptimizationRequest.RouteOptimizationDayRequest::getRouteDate)
+                .filter(Objects::nonNull)
+                .findFirst();
+        if (explicit.isPresent()) {
+            return explicit.get();
+        }
+        return route.getRouteDays().stream()
+                .map(RouteDay::getRouteDate)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElseGet(() -> route.getRouteDays().stream()
+                        .map(RouteDay::getPlannedStart)
+                        .filter(Objects::nonNull)
+                        .map(LocalDateTime::toLocalDate)
+                        .findFirst()
+                        .orElse(LocalDate.now()));
+    }
+
+    private void applyDayIdentity(RouteDay day, LocalDate baseDate, RouteOptimizationRequest.RouteOptimizationDayRequest request) {
+        LocalDate dayDate = request != null && request.getRouteDate() != null
+                ? request.getRouteDate()
+                : baseDate.plusDays(Math.max(0, day.getDayNumber() - 1L));
+        day.setRouteDate(dayDate);
+    }
+
+    private List<RoutePoint> reorderByFastestOpenPath(
+            Route route,
+            List<RoutePoint> points,
+            RouteDay day,
+            RouteOptimizationRequest.RouteOptimizationDayRequest dayRequest,
+            Map<Long, PoiResponse> poiMap
+    ) {
+        if (points.size() <= 1) {
+            return new ArrayList<>(points);
+        }
+
+        TravelMatrixResult matrix = buildMatrix(route.getCityId(), points, route.getTransportMode());
+        int[] order = buildBestOrder(matrix);
+        List<RoutePoint> reordered = new ArrayList<>(points.size());
+        for (int index : order) {
+            reordered.add(points.get(index));
+        }
+        return enforceOpeningHours(reordered, day, dayRequest, poiMap, route.getCityId(), route.getTransportMode());
+    }
+
+    private List<RoutePoint> enforceOpeningHours(
+            List<RoutePoint> points,
+            RouteDay day,
+            RouteOptimizationRequest.RouteOptimizationDayRequest dayRequest,
+            Map<Long, PoiResponse> poiMap,
+            Long cityId,
+            Route.TransportMode transportMode
+    ) {
+        List<RoutePoint> remaining = new ArrayList<>(points);
+        List<RoutePoint> result = new ArrayList<>();
+        LocalDateTime cursor = resolveDayStart(day, dayRequest);
+        RoutePoint previous = null;
+
+        while (!remaining.isEmpty()) {
+            RoutePoint best = null;
+            LocalDateTime bestArrival = null;
+            long bestScore = Long.MAX_VALUE;
+
+            for (RoutePoint candidate : remaining) {
+                int travelMinutes = previous == null ? 0 : estimateTravelMinutes(cityId, transportMode, previous, candidate);
+                LocalDateTime arrivalCandidate = cursor.plusMinutes(travelMinutes);
+                LocalDateTime feasibleArrival = adjustToOpening(arrivalCandidate, candidate, day, poiMap);
+                LocalDateTime departure = feasibleArrival.plusMinutes(resolveVisitMinutes(candidate));
+                if (!fitsWindow(candidate, feasibleArrival, departure, day, poiMap, dayRequest)) {
+                    continue;
+                }
+                long waitMinutes = Math.max(0, Duration.between(arrivalCandidate, feasibleArrival).toMinutes());
+                long score = travelMinutes * 10L + waitMinutes;
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = candidate;
+                    bestArrival = feasibleArrival;
+                }
+            }
+
+            if (best == null) {
+                result.addAll(remaining);
+                break;
+            }
+
+            result.add(best);
+            cursor = bestArrival.plusMinutes(resolveVisitMinutes(best));
+            previous = best;
+            remaining.remove(best);
+        }
+        return result;
+    }
+
+    private void scheduleDay(
+            RouteDay day,
+            RouteOptimizationRequest.RouteOptimizationDayRequest request,
+            Long cityId,
+            Route.TransportMode transportMode,
+            Map<Long, PoiResponse> poiMap
+    ) {
+        List<RoutePoint> points = day.getRoutePoints().stream()
+                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
+                .toList();
+        if (points.isEmpty()) {
+            applyDayWindow(day, request);
+            return;
+        }
+
+        LocalDateTime dayStart = resolveDayStart(day, request);
+        LocalDateTime dayEnd = resolveDayEnd(day, request);
+        LocalDateTime cursor = dayStart;
+        RoutePoint previous = null;
+
+        for (RoutePoint point : points) {
+            if (previous != null) {
+                cursor = cursor.plusMinutes(estimateTravelMinutes(cityId, transportMode, previous, point));
+            }
+
+            LocalDateTime actualArrival = adjustToOpening(cursor, point, day, poiMap);
+            LocalDateTime departure = actualArrival.plusMinutes(resolveVisitMinutes(point));
+            if (!fitsWindow(point, actualArrival, departure, day, poiMap, request)) {
+                LocalDateTime fallbackArrival = cursor;
+                LocalDateTime fallbackDeparture = fallbackArrival.plusMinutes(resolveVisitMinutes(point));
+                point.setPlannedArrivalAt(fallbackArrival);
+                point.setPlannedDepartureAt(fallbackDeparture);
+                cursor = fallbackDeparture;
+            } else {
+                point.setPlannedArrivalAt(actualArrival);
+                point.setPlannedDepartureAt(departure);
+                cursor = departure;
+            }
+            previous = point;
+        }
+
+        day.setPlannedStart(dayStart);
+        day.setPlannedEnd(cursor.isAfter(dayEnd) ? cursor : dayEnd);
+    }
+
+    private LocalDateTime adjustToOpening(LocalDateTime candidate, RoutePoint point, RouteDay day, Map<Long, PoiResponse> poiMap) {
+        PoiResponse poi = poiMap.get(point.getPoiId());
+        TimeWindow window = resolvePoiWindow(poi, day, candidate.toLocalDate());
+        if (window == null) {
+            return candidate;
+        }
+        return candidate.isBefore(window.openAt()) ? window.openAt() : candidate;
+    }
+
+    private boolean fitsWindow(
+            RoutePoint point,
+            LocalDateTime arrival,
+            LocalDateTime departure,
+            RouteDay day,
+            Map<Long, PoiResponse> poiMap,
+            RouteOptimizationRequest.RouteOptimizationDayRequest request
+    ) {
+        LocalDateTime dayEnd = resolveDayEnd(day, request);
+        if (departure.isAfter(dayEnd)) {
+            return false;
+        }
+        PoiResponse poi = poiMap.get(point.getPoiId());
+        TimeWindow window = resolvePoiWindow(poi, day, arrival.toLocalDate());
+        return window == null || !arrival.isBefore(window.openAt()) && !departure.isAfter(window.closeAt());
+    }
+
+    private TimeWindow resolvePoiWindow(PoiResponse poi, RouteDay day, LocalDate dayDate) {
+        if (poi == null || poi.getHours() == null || poi.getHours().isEmpty()) {
+            return null;
+        }
+        DayOfWeek dayOfWeek = dayDate.getDayOfWeek();
+        return poi.getHours().stream()
+                .filter(Objects::nonNull)
+                .filter(hours -> hours.getDayOfWeek() != null && hours.getDayOfWeek() == dayOfWeek.getValue())
+                .findFirst()
+                .map(hours -> {
+                    if (Boolean.TRUE.equals(hours.getClosed())) {
+                        return null;
+                    }
+                    LocalTime open = Boolean.TRUE.equals(hours.getAroundTheClock()) || hours.getOpenTime() == null
+                            ? LocalTime.MIN
+                            : hours.getOpenTime();
+                    LocalTime close = Boolean.TRUE.equals(hours.getAroundTheClock()) || hours.getCloseTime() == null
+                            ? LocalTime.MAX.minusNanos(1)
+                            : hours.getCloseTime();
+                    return new TimeWindow(dayDate.atTime(open), dayDate.atTime(close));
+                })
+                .orElse(null);
+    }
+
+    private int estimateTravelMinutes(Long cityId, Route.TransportMode transportMode, RoutePoint from, RoutePoint to) {
+        TravelMatrixResult matrix = buildMatrix(cityId, List.of(from, to), transportMode);
+        if (matrix.getDurationMin().length < 2 || matrix.getDurationMin()[0].length < 2) {
+            return 0;
+        }
+        return Math.max(0, matrix.getDurationMin()[0][1]);
+    }
+
+    private int resolveVisitMinutes(RoutePoint point) {
+        return point.getEstimatedVisitMinutes() != null && point.getEstimatedVisitMinutes() > 0
+                ? point.getEstimatedVisitMinutes()
+                : DEFAULT_VISIT_MINUTES;
+    }
+
+    private void applyDayWindow(RouteDay day, RouteOptimizationRequest.RouteOptimizationDayRequest request) {
+        LocalDateTime start = resolveDayStart(day, request);
+        LocalDateTime end = resolveDayEnd(day, request);
+        day.setPlannedStart(start);
+        day.setPlannedEnd(end.isAfter(start) ? end : start.plusHours(8));
+    }
+
+    private LocalDateTime resolveDayStart(RouteDay day, RouteOptimizationRequest.RouteOptimizationDayRequest request) {
+        LocalDate date = day.getRouteDate() != null ? day.getRouteDate()
+                : day.getPlannedStart() != null ? day.getPlannedStart().toLocalDate()
+                : LocalDate.now();
+        LocalTime time = request != null && request.getDayStartTime() != null
+                ? request.getDayStartTime()
+                : day.getPlannedStart() != null ? day.getPlannedStart().toLocalTime() : LocalTime.of(9, 0);
+        return date.atTime(time);
+    }
+
+    private LocalDateTime resolveDayEnd(RouteDay day, RouteOptimizationRequest.RouteOptimizationDayRequest request) {
+        LocalDate date = day.getRouteDate() != null ? day.getRouteDate()
+                : day.getPlannedEnd() != null ? day.getPlannedEnd().toLocalDate()
+                : day.getPlannedStart() != null ? day.getPlannedStart().toLocalDate() : LocalDate.now();
+        LocalTime time = request != null && request.getDayEndTime() != null
+                ? request.getDayEndTime()
+                : day.getPlannedEnd() != null ? day.getPlannedEnd().toLocalTime() : LocalTime.of(18, 0);
+        return date.atTime(time);
+    }
+
+    private Map<Long, PoiResponse> loadPoiDetails(List<RoutePoint> points) {
+        List<Long> poiIds = points.stream().map(RoutePoint::getPoiId).distinct().toList();
+        try {
+            return poiClient.getPoisBatch(poiIds).stream().collect(Collectors.toMap(PoiResponse::getId, poi -> poi, (a, b) -> a));
+        } catch (Exception ex) {
+            log.warn("Failed to load poi batch for optimization, fallback to single loads", ex);
+            Map<Long, PoiResponse> result = new HashMap<>();
+            for (Long poiId : poiIds) {
+                try {
+                    result.put(poiId, poiClient.getPoiById(poiId));
+                } catch (Exception ignored) {
+                    log.warn("Failed to load poi {}", poiId);
+                }
+            }
+            return result;
+        }
+    }
+
+    private TravelMatrixResult buildMatrix(Long cityId, List<RoutePoint> points, Route.TransportMode transportMode) {
+        List<RoutingPoint> routingPoints = points.stream()
+                .map(point -> new RoutingPoint(point.getId(), point.getPoiId(), safeLatitude(point), safeLongitude(point)))
+                .toList();
+        return routingProvider.buildMatrix(cityId, routingPoints, transportMode);
+    }
+
+    private List<RoutePoint> reorderByFastestOpenPath(Route route, List<RoutePoint> points) { return points; }
+
+    private int[] buildBestOrder(TravelMatrixResult matrix) {
+        int n = matrix.getDurationMin().length;
+        if (n <= 1) return buildIdentity(n);
+        if (n <= 10) return exactHeldKarpOpenPath(matrix);
+        return twoOpt(nearestNeighborOrder(matrix), matrix);
+    }
+
+    private int[] exactHeldKarpOpenPath(TravelMatrixResult matrix) {
         int n = matrix.getDurationMin().length;
         int size = 1 << n;
         double[][] dp = new double[size][n];
         int[][] parent = new int[size][n];
-
-        for (double[] row : dp) {
-            Arrays.fill(row, Double.POSITIVE_INFINITY);
-        }
-        for (int[] row : parent) {
-            Arrays.fill(row, -1);
-        }
-
-        for (int i = 0; i < n; i++) {
-            dp[1 << i][i] = 0.0;
-        }
-
+        for (double[] row : dp) Arrays.fill(row, Double.POSITIVE_INFINITY);
+        for (int[] row : parent) Arrays.fill(row, -1);
+        for (int i = 0; i < n; i++) dp[1 << i][i] = 0.0;
         for (int mask = 1; mask < size; mask++) {
             for (int last = 0; last < n; last++) {
-                if ((mask & (1 << last)) == 0 || Double.isInfinite(dp[mask][last])) {
-                    continue;
-                }
+                if ((mask & (1 << last)) == 0 || Double.isInfinite(dp[mask][last])) continue;
                 for (int next = 0; next < n; next++) {
-                    if ((mask & (1 << next)) != 0) {
-                        continue;
-                    }
+                    if ((mask & (1 << next)) != 0) continue;
                     int nextMask = mask | (1 << next);
-                    double candidate = dp[mask][last] + travelCost(matrix, last, next, mode);
+                    double candidate = dp[mask][last] + matrix.getDurationMin()[last][next];
                     if (candidate < dp[nextMask][next]) {
                         dp[nextMask][next] = candidate;
                         parent[nextMask][next] = last;
@@ -123,7 +390,6 @@ public class RouteOptimizationService {
                 }
             }
         }
-
         int fullMask = size - 1;
         int bestLast = 0;
         double bestCost = Double.POSITIVE_INFINITY;
@@ -133,157 +399,127 @@ public class RouteOptimizationService {
                 bestLast = last;
             }
         }
-
         int[] order = new int[n];
-        int cursor = bestLast;
         int mask = fullMask;
-        for (int pos = n - 1; pos >= 0; pos--) {
-            order[pos] = cursor;
-            int previous = parent[mask][cursor];
-            mask ^= (1 << cursor);
-            cursor = previous;
-            if (cursor == -1 && pos > 0) {
-                cursor = Integer.numberOfTrailingZeros(mask);
-            }
+        int current = bestLast;
+        for (int i = n - 1; i >= 0; i--) {
+            order[i] = current;
+            int previous = parent[mask][current];
+            mask ^= 1 << current;
+            current = previous;
         }
         return order;
     }
 
-    private int[] nearestNeighborOrder(TravelMatrixResult matrix, String mode) {
+    private int[] nearestNeighborOrder(TravelMatrixResult matrix) {
         int n = matrix.getDurationMin().length;
-        boolean[] visited = new boolean[n];
+        boolean[] used = new boolean[n];
         int[] order = new int[n];
-        int current = 0;
-        order[0] = current;
-        visited[current] = true;
-
-        for (int step = 1; step < n; step++) {
-            int bestNext = -1;
-            double bestCost = Double.POSITIVE_INFINITY;
-            for (int candidate = 0; candidate < n; candidate++) {
-                if (visited[candidate]) {
-                    continue;
-                }
-                double cost = travelCost(matrix, current, candidate, mode);
+        order[0] = 0;
+        used[0] = true;
+        for (int pos = 1; pos < n; pos++) {
+            int prev = order[pos - 1];
+            int best = -1;
+            int bestCost = Integer.MAX_VALUE;
+            for (int next = 0; next < n; next++) {
+                if (used[next]) continue;
+                int cost = matrix.getDurationMin()[prev][next];
                 if (cost < bestCost) {
                     bestCost = cost;
-                    bestNext = candidate;
+                    best = next;
                 }
             }
-            if (bestNext == -1) {
-                break;
-            }
-            visited[bestNext] = true;
-            order[step] = bestNext;
-            current = bestNext;
+            order[pos] = best;
+            used[best] = true;
         }
         return order;
     }
 
-    private int[] twoOpt(int[] initialOrder, TravelMatrixResult matrix, String mode) {
-        int[] best = Arrays.copyOf(initialOrder, initialOrder.length);
+    private int[] twoOpt(int[] order, TravelMatrixResult matrix) {
+        int[] best = Arrays.copyOf(order, order.length);
         boolean improved = true;
-
         while (improved) {
             improved = false;
-            for (int i = 1; i < best.length - 1; i++) {
-                for (int k = i + 1; k < best.length; k++) {
-                    int[] candidate = twoOptSwap(best, i, k);
-                    if (routeCost(candidate, matrix, mode) + 1e-6 < routeCost(best, matrix, mode)) {
-                        best = candidate;
+            for (int i = 1; i < best.length - 2; i++) {
+                for (int k = i + 1; k < best.length - 1; k++) {
+                    int delta = gain(best, i, k, matrix);
+                    if (delta < 0) {
+                        reverse(best, i, k);
                         improved = true;
                     }
                 }
             }
         }
-
         return best;
     }
 
-    private int[] twoOptSwap(int[] order, int i, int k) {
-        int[] result = new int[order.length];
-        System.arraycopy(order, 0, result, 0, i);
-        for (int c = i; c <= k; c++) {
-            result[c] = order[k - (c - i)];
-        }
-        if (k + 1 < order.length) {
-            System.arraycopy(order, k + 1, result, k + 1, order.length - (k + 1));
-        }
-        return result;
+    private int gain(int[] order, int i, int k, TravelMatrixResult matrix) {
+        int a = order[i - 1];
+        int b = order[i];
+        int c = order[k];
+        int d = order[k + 1];
+        return matrix.getDurationMin()[a][c] + matrix.getDurationMin()[b][d]
+                - matrix.getDurationMin()[a][b] - matrix.getDurationMin()[c][d];
     }
 
-    private double routeCost(int[] order, TravelMatrixResult matrix, String mode) {
-        double cost = 0.0;
-        for (int i = 1; i < order.length; i++) {
-            cost += travelCost(matrix, order[i - 1], order[i], mode);
+    private void reverse(int[] order, int i, int k) {
+        while (i < k) {
+            int tmp = order[i];
+            order[i] = order[k];
+            order[k] = tmp;
+            i++;
+            k--;
         }
-        return cost;
     }
 
-    private double travelCost(TravelMatrixResult matrix, int from, int to, String mode) {
-        return MODE_DISTANCE.equals(mode)
-                ? matrix.getDistanceKm()[from][to]
-                : matrix.getDurationMin()[from][to];
-    }
-
-    private int[] buildIdentity(int size) {
-        int[] order = new int[size];
-        for (int i = 0; i < size; i++) {
-            order[i] = i;
-        }
+    private int[] buildIdentity(int n) {
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) order[i] = i;
         return order;
     }
 
     private void hydrateCoordinates(List<RoutePoint> points) {
-        for (RoutePoint point : points) {
-            if (point.getPoiLatitude() != null && point.getPoiLongitude() != null) {
-                continue;
-            }
-            try {
-                PoiResponse poi = poiClient.getPoiById(point.getPoiId());
-                if (poi != null && poi.getLatitude() != null && poi.getLongitude() != null) {
-                    point.setPoiLatitude(poi.getLatitude());
-                    point.setPoiLongitude(poi.getLongitude());
-                    if (point.getPoiName() == null) {
-                        point.setPoiName(poi.getName());
-                        point.setPoiAddress(poi.getAddress());
-                        point.setPoiType(extractPoiType(poi));
-                    }
+        List<Long> poiIds = points.stream().map(RoutePoint::getPoiId).distinct().toList();
+        Map<Long, PoiResponse> poiMap = new HashMap<>();
+        try {
+            poiClient.getPoisBatch(poiIds).forEach(poi -> poiMap.put(poi.getId(), poi));
+        } catch (Exception e) {
+            log.warn("Failed to hydrate route optimization batch coordinates, fallback to single fetch", e);
+            for (Long poiId : poiIds) {
+                try {
+                    PoiResponse poi = poiClient.getPoiById(poiId);
+                    if (poi != null) poiMap.put(poiId, poi);
+                } catch (Exception ignored) {
+                    log.warn("Failed to load poi {} during optimization hydration", poiId);
                 }
-            } catch (Exception e) {
-                log.warn("Failed to load coordinates for POI {} from poi-service", point.getPoiId(), e);
             }
         }
-    }
-
-    private String normalizeMode(String optimizationMode) {
-        if (optimizationMode == null || optimizationMode.isBlank()) {
-            return MODE_TIME;
-        }
-        String normalized = optimizationMode.trim().toUpperCase(Locale.ROOT);
-        return switch (normalized) {
-            case MODE_TIME, MODE_DISTANCE -> normalized;
-            default -> MODE_TIME;
-        };
+        points.forEach(point -> {
+            PoiResponse poi = poiMap.get(point.getPoiId());
+            if (poi != null) {
+                point.setPoiDetails(
+                        poi.getName(),
+                        poi.getAddress(),
+                        poi.getLatitude(),
+                        poi.getLongitude(),
+                        poi.getPoiType() != null ? poi.getPoiType().getName() : point.getPoiType()
+                );
+            }
+        });
     }
 
     private double safeLatitude(RoutePoint point) {
-        return point.getPoiLatitude() != null ? point.getPoiLatitude() : 0.0;
+        return point.getPoiLatitude() != null ? point.getPoiLatitude() : 0d;
     }
 
     private double safeLongitude(RoutePoint point) {
-        return point.getPoiLongitude() != null ? point.getPoiLongitude() : 0.0;
+        return point.getPoiLongitude() != null ? point.getPoiLongitude() : 0d;
     }
 
-    private String extractPoiType(PoiResponse poi) {
-        return poi != null && poi.getPoiType() != null ? poi.getPoiType().getCode() : null;
+    private String normalizeMode(String mode) {
+        String normalized = mode == null ? MODE_TIME_WINDOW : mode.trim().toUpperCase();
+        return MODE_USER_ORDER.equals(normalized) ? MODE_USER_ORDER : MODE_TIME_WINDOW;
     }
 
-    private void updateOrderIndices(RouteDay day) {
-        List<RoutePoint> sorted = new ArrayList<>(day.getRoutePoints());
-        for (int i = 0; i < sorted.size(); i++) {
-            sorted.get(i).setOrderIndex((short) (i + 1));
-        }
-        day.getRoutePoints().sort(Comparator.comparing(RoutePoint::getOrderIndex));
-    }
+    private record TimeWindow(LocalDateTime openAt, LocalDateTime closeAt) {}
 }
