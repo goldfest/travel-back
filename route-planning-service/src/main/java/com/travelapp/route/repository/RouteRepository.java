@@ -45,10 +45,11 @@ public interface RouteRepository extends JpaRepository<Route, Long> {
     Optional<Route> findByIdAndUserId(Long id, Long userId);
 
     @Query("""
-    select distinct r from Route r
-    left join fetch r.routeDays d
-    where r.id = :id and r.user.id = :userId
-""")
+        select distinct r
+        from Route r
+        left join fetch r.routeDays d
+        where r.id = :id and r.userId = :userId
+    """)
     Optional<Route> findFullByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 
     @Query("""
