@@ -279,17 +279,27 @@ public class RouteServiceImpl implements RouteService {
             throw new RouteValidationException("Объект уже добавлен в этот день маршрута");
         }
 
-        short actualOrder = orderIndex != null ? orderIndex : nextOrderIndex(routeDay);
-        shiftRoutePointsOrder(routeDay, actualOrder);
+        List<RoutePoint> existingPoints = routePointRepository.findByRouteDayIdOrderByOrderIndexAsc(routeDay.getId());
+        short actualOrder = orderIndex != null
+                ? (short) Math.max(1, Math.min(orderIndex, (short) (existingPoints.size() + 1)))
+                : (short) (existingPoints.size() + 1);
+
+        bumpExistingDayPointsToTemporaryOrder(existingPoints);
 
         RoutePoint routePoint = new RoutePoint();
-        routePoint.setOrderIndex(actualOrder);
+        routePoint.setOrderIndex((short) (TEMP_ORDER_BASE + existingPoints.size() + 1));
         routePoint.setPoiId(poiId);
         routePoint.setEstimatedVisitMinutes(60);
         applyPoiSnapshot(routePoint, poi);
         routeDay.addRoutePoint(routePoint);
+        routePointRepository.saveAndFlush(routePoint);
 
-        Route saved = routeRepository.save(route);
+        List<RoutePoint> finalPoints = new ArrayList<>(existingPoints);
+        finalPoints.add(actualOrder - 1, routePoint);
+        applyFinalPointOrder(routeDay, finalPoints);
+
+        Route saved = routeRepository.findById(route.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         routePathCacheService.rebuildRoutePaths(saved.getId());
         saved = routeRepository.findById(saved.getId())
@@ -313,10 +323,13 @@ public class RouteServiceImpl implements RouteService {
         RouteDay day = point.getRouteDay();
         day.removeRoutePoint(point);
         routePointRepository.delete(point);
+        routePointRepository.flush();
 
-        normalizeDayOrder(day);
+        persistDayPointOrderSafely(day);
 
-        Route saved = routeRepository.save(route);
+
+        Route saved = routeRepository.findById(route.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         routePathCacheService.rebuildRoutePaths(saved.getId());
         saved = routeRepository.findById(saved.getId())
@@ -348,16 +361,16 @@ public class RouteServiceImpl implements RouteService {
                 .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
 
         List<RoutePoint> reordered = new ArrayList<>();
-        for (int i = 0; i < pointIdsInOrder.size(); i++) {
-            RoutePoint point = pointMap.get(pointIdsInOrder.get(i));
-            point.setOrderIndex((short) (i + 1));
+        for (Long pointId : pointIdsInOrder) {
+            RoutePoint point = pointMap.get(pointId);
+            if (point == null) {
+                throw new RouteValidationException("Некорректный список точек для сортировки внутри дня");
+            }
             reordered.add(point);
         }
 
-        day.getRoutePoints().clear();
-        day.getRoutePoints().addAll(reordered);
-
-        persistDayPointOrderSafely(day);
+        bumpExistingDayPointsToTemporaryOrder(points);
+        applyFinalPointOrder(day, reordered);
 
         Route saved = routeRepository.save(route);
 
@@ -649,11 +662,6 @@ public class RouteServiceImpl implements RouteService {
         return point;
     }
 
-    private void shiftRoutePointsOrder(RouteDay day, short fromOrder) {
-        day.getRoutePoints().stream()
-                .filter(point -> point.getOrderIndex() >= fromOrder)
-                .forEach(point -> point.setOrderIndex((short) (point.getOrderIndex() + 1)));
-    }
 
     private short nextOrderIndex(RouteDay routeDay) {
         return routePointRepository.findMaxOrderIndexByRouteDayId(routeDay.getId())
@@ -670,16 +678,6 @@ public class RouteServiceImpl implements RouteService {
         return route.getRouteDays().stream()
                 .max(Comparator.comparing(RouteDay::getDayNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("У маршрута нет дней"));
-    }
-
-    private void normalizeDayOrder(RouteDay day) {
-        List<RoutePoint> points = day.getRoutePoints().stream()
-                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
-                .toList();
-
-        for (int i = 0; i < points.size(); i++) {
-            points.get(i).setOrderIndex((short) (i + 1));
-        }
     }
 
     private void recalculateRouteMetrics(Route route) {
@@ -808,29 +806,32 @@ public class RouteServiceImpl implements RouteService {
         return response;
     }
 
+    private static final short TEMP_ORDER_BASE = 10_000;
+
     private void persistDayPointOrderSafely(RouteDay day) {
         List<RoutePoint> orderedPoints = day.getRoutePoints().stream()
                 .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
                 .toList();
 
-        short tempBase = 1000;
-        for (int i = 0; i < orderedPoints.size(); i++) {
-            orderedPoints.get(i).setOrderIndex((short) (tempBase + i + 1));
-        }
-        routePointRepository.saveAll(orderedPoints);
-        routePointRepository.flush();
+        applyFinalPointOrder(day, orderedPoints);
+    }
 
+    private void bumpExistingDayPointsToTemporaryOrder(List<RoutePoint> points) {
+        for (int i = 0; i < points.size(); i++) {
+            points.get(i).setOrderIndex((short) (TEMP_ORDER_BASE + i + 1));
+        }
+        routePointRepository.saveAll(points);
+        routePointRepository.flush();
+    }
+
+    private void applyFinalPointOrder(RouteDay day, List<RoutePoint> orderedPoints) {
         for (int i = 0; i < orderedPoints.size(); i++) {
             orderedPoints.get(i).setOrderIndex((short) (i + 1));
         }
         routePointRepository.saveAll(orderedPoints);
         routePointRepository.flush();
 
-        for (int i = 0; i < orderedPoints.size(); i++) {
-            RoutePoint point = orderedPoints.get(i);
-            if (i < day.getRoutePoints().size()) {
-                day.getRoutePoints().set(i, point);
-            }
-        }
+        day.getRoutePoints().clear();
+        day.getRoutePoints().addAll(orderedPoints);
     }
 }

@@ -9,6 +9,7 @@ import com.travelapp.route.model.dto.routing.TravelMatrixResult;
 import com.travelapp.route.model.entity.Route;
 import com.travelapp.route.model.entity.RouteDay;
 import com.travelapp.route.model.entity.RoutePoint;
+import com.travelapp.route.repository.RoutePointRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,9 +41,11 @@ public class RouteOptimizationService {
     private static final String MODE_TIME_WINDOW = "TIME_WINDOW";
     private static final String MODE_USER_ORDER = "USER_ORDER";
     private static final int DEFAULT_VISIT_MINUTES = 60;
+    private static final short TEMP_ORDER_BASE = 10_000;
 
     private final PoiClient poiClient;
     private final RoutingProvider routingProvider;
+    private final RoutePointRepository routePointRepository;
 
     public Route optimizeRoute(Route route, RouteOptimizationRequest request) {
         RouteOptimizationRequest payload = request != null ? request : new RouteOptimizationRequest();
@@ -403,6 +406,19 @@ public class RouteOptimizationService {
             byDayId.computeIfAbsent(targetDay.getId(), ignored -> new ArrayList<>()).add(assignment);
         }
 
+        List<RoutePoint> affectedPoints = assignments.values().stream()
+                .map(PlannedPointAssignment::point)
+                .distinct()
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        for (int i = 0; i < affectedPoints.size(); i++) {
+            affectedPoints.get(i).setOrderIndex((short) (TEMP_ORDER_BASE + i + 1));
+        }
+        if (!affectedPoints.isEmpty()) {
+            routePointRepository.saveAll(affectedPoints);
+            routePointRepository.flush();
+        }
+
         for (RouteDay day : sortedDays) {
             List<PlannedPointAssignment> planned = byDayId.getOrDefault(day.getId(), List.of()).stream()
                     .sorted(Comparator
@@ -411,6 +427,7 @@ public class RouteOptimizationService {
                             .thenComparing(a -> a.point().getOrderIndex(), Comparator.nullsLast(Comparator.naturalOrder())))
                     .collect(Collectors.toCollection(ArrayList::new));
 
+            List<RoutePoint> orderedPoints = new ArrayList<>();
             short nextOrder = 1;
             for (PlannedPointAssignment assignment : planned) {
                 RoutePoint point = assignment.point();
@@ -418,17 +435,11 @@ public class RouteOptimizationService {
                 point.setOrderIndex(nextOrder++);
                 point.setPlannedArrivalAt(assignment.plannedArrivalAt());
                 point.setPlannedDepartureAt(assignment.plannedDepartureAt());
+                orderedPoints.add(point);
             }
 
-            day.getRoutePoints().removeIf(point -> point.getRouteDay() != day);
-            for (PlannedPointAssignment assignment : planned) {
-                RoutePoint point = assignment.point();
-                if (!day.getRoutePoints().contains(point)) {
-                    day.getRoutePoints().add(point);
-                }
-            }
-
-            day.getRoutePoints().sort(Comparator.comparing(RoutePoint::getOrderIndex));
+            day.getRoutePoints().clear();
+            day.getRoutePoints().addAll(orderedPoints);
         }
     }
 
