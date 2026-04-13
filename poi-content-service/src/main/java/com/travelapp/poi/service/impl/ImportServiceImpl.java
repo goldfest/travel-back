@@ -48,8 +48,10 @@ public class ImportServiceImpl implements ImportService {
     private enum PoiImportOutcome {
         CREATED,
         UPDATED,
+        REJECTED,
         SKIPPED
     }
+    private static final String CANCELLED_PREFIX = "Cancelled by user";
 
     private final DataImportTaskRepository importTaskRepository;
     private final ImportTaskMapper importTaskMapper;
@@ -69,7 +71,7 @@ public class ImportServiceImpl implements ImportService {
 
     private final ExecutorService importExecutor = Executors.newFixedThreadPool(5);
 
-    @Value("${import.batch.size:50}")
+    /*@Value("${import.batch.size:50}")
     private int batchSize;
 
     @Value("${import.batch.retry-attempts:3}")
@@ -77,12 +79,15 @@ public class ImportServiceImpl implements ImportService {
 
     private final WebClient webClient = WebClient.builder()
             .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
-            .build();
+            .build();*/
+    @Value("${import.progress.log-every:10}")
+    private int logEvery;
 
     @Override
     @Transactional
     public ImportTaskResponse startImport(ImportTaskRequest request, Long userId) {
-        log.info("Starting import task for source: {}, query: {}", request.getSourceCode(), request.getQuery());
+        log.info("Starting import task for source={}, query='{}', cityId={}, userId={}",
+                request.getSourceCode(), request.getQuery(), request.getCityId(), userId);
 
         DataImportTask task = new DataImportTask();
         task.setSourceCode(request.getSourceCode());
@@ -146,9 +151,12 @@ public class ImportServiceImpl implements ImportService {
 
         if (task.getStatus() == DataImportTask.ImportStatus.PENDING
                 || task.getStatus() == DataImportTask.ImportStatus.RUNNING) {
-            task.fail("Cancelled by user: " + userId);
+            //task.fail("Cancelled by user: " + userId);
+
+            task.fail(CANCELLED_PREFIX + ": " + userId);
             importTaskRepository.save(task);
-            log.info("Import task cancelled: {}", taskId);
+            //log.info("Import task cancelled: {}", taskId);
+            log.info("Import task cancelled: taskId={}, userId={}", taskId, userId);
         }
     }
 
@@ -164,6 +172,8 @@ public class ImportServiceImpl implements ImportService {
             task.setStartedAt(null);
             task.setFinishedAt(null);
             importTaskRepository.save(task);
+
+            log.info("Retrying import task: taskId={}, userId={}", taskId, userId);
 
             CompletableFuture.runAsync(() -> executeImport(task.getId(), userId), importExecutor);
         }
@@ -181,7 +191,9 @@ public class ImportServiceImpl implements ImportService {
         for (DataImportTask task : stalledTasks) {
             task.fail("Task stalled for more than 30 minutes");
             importTaskRepository.save(task);
-            log.warn("Marked stalled task as failed: {}", task.getId());
+            //log.warn("Marked stalled task as failed: {}", task.getId());
+            log.warn("Marked stalled task as failed: taskId={}", task.getId());
+
         }
     }
 
@@ -190,7 +202,9 @@ public class ImportServiceImpl implements ImportService {
         DataImportTask task = importTaskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Import task not found: " + taskId));
 
-        log.info("Executing import task: {}", task.getId());
+        //log.info("Executing import task: {}", task.getId());
+        log.info("Executing import task: taskId={}, source={}, query='{}', cityId={}, userId={}",
+                task.getId(), task.getSourceCode(), task.getQuery(), task.getCityId(), userId);
 
         task.start();
         importTaskRepository.save(task);
@@ -199,49 +213,45 @@ public class ImportServiceImpl implements ImportService {
             String source = task.getSourceCode() == null ? "" : task.getSourceCode().trim().toLowerCase();
 
             switch (source) {
-                case "google_maps":
-                    importFromGoogleMaps(task, userId);
-                    break;
-                case "yandex":
-                    importFromYandex(task, userId);
-                    break;
-                case "wiki":
-                case "wikipedia":
-                    importFromWikipedia(task, userId);
-                    break;
-                case "2gis":
-                    importFrom2GIS(task, userId);
-                    break;
-                case "booking":
-                    importFromBooking(task, userId);
-                    break;
-                case "manual_admin":
-                    importManualData(task, userId);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unsupported source: " + task.getSourceCode());
+                case "google_maps" -> importFromGoogleMaps(task, userId);
+                case "yandex" -> importFromYandex(task, userId);
+                case "wiki", "wikipedia" -> importFromWikipedia(task, userId);
+                case "2gis" -> importFrom2GIS(task, userId);
+                case "booking" -> importFromBooking(task, userId);
+                case "manual_admin" -> importManualData(task, userId);
+                default -> throw new IllegalArgumentException("Unsupported source: " + task.getSourceCode());
             }
 
             DataImportTask freshTask = importTaskRepository.findById(taskId)
                     .orElseThrow(() -> new RuntimeException("Import task not found before completion: " + taskId));
 
-            if (freshTask.getStatus() == DataImportTask.ImportStatus.FAILED
-                    && freshTask.getErrorMessage() != null
-                    && freshTask.getErrorMessage().startsWith("Cancelled by user")) {
+            if (isCancelledTask(freshTask)) {
                 log.info("Import task {} was cancelled, skipping success completion", taskId);
                 return;
             }
 
-            freshTask.setTotalPoiFound(task.getTotalPoiFound());
-            freshTask.setTotalPoiCreated(task.getTotalPoiCreated());
-            freshTask.setTotalPoiUpdated(task.getTotalPoiUpdated());
-            freshTask.complete(task.getTotalPoiCreated(), task.getTotalPoiUpdated());
+            freshTask.complete(
+                    safeInt(task.getTotalPoiCreated()),
+                    safeInt(task.getTotalPoiUpdated())
+            );
+            freshTask.setTotalPoiFound(safeInt(task.getTotalPoiFound()));
+            freshTask.setTotalPoiRejected(safeInt(task.getTotalPoiRejected()));
+            freshTask.setTotalPoiSkipped(safeInt(task.getTotalPoiSkipped()));
             importTaskRepository.save(freshTask);
 
-            log.info("Import task completed successfully: {}", freshTask.getId());
+            //log.info("Import task completed successfully: {}", freshTask.getId());
+            log.info("Import task completed: taskId={}, found={}, created={}, updated={}, rejected={}, skipped={}",
+                    freshTask.getId(),
+                    freshTask.getTotalPoiFound(),
+                    freshTask.getTotalPoiCreated(),
+                    freshTask.getTotalPoiUpdated(),
+                    freshTask.getTotalPoiRejected(),
+                    freshTask.getTotalPoiSkipped());
 
         } catch (Exception e) {
-            log.error("Import task failed: {}", e.getMessage(), e);
+            //log.error("Import task failed: {}", e.getMessage(), e);
+
+            log.error("Import task failed: taskId={}, error={}", taskId, e.getMessage(), e);
 
             DataImportTask failedTask = importTaskRepository.findById(taskId)
                     .orElseThrow(() -> new RuntimeException("Import task not found on failure: " + taskId));
@@ -256,16 +266,21 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFromGoogleMaps(DataImportTask task, Long userId) {
-        log.info("Importing from Google Maps: {}", task.getQuery());
+        //log.info("Importing from Google Maps: {}", task.getQuery());
+        log.info("Importing from Google Maps: taskId={}, query='{}'", task.getId(), task.getQuery());
+
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
 
         try {
-            if (task.getCityId() == null) {
+            /*if (task.getCityId() == null) {
                 throw new IllegalArgumentException("City ID is required for Google Maps import");
-            }
+            }*/
+            requireCityId(task, "Google Maps");
 
             MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
                     task.getCityId(),
@@ -289,13 +304,22 @@ public class ImportServiceImpl implements ImportService {
             );
 
             found++;
-            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, mlPoiWorkerClient.enrichRaw(enrichRequest), null);
+            if (outcome == PoiImportOutcome.CREATED) {
                 created++;
+            } else if (outcome == PoiImportOutcome.UPDATED) {
+                updated++;
+            } else if (outcome == PoiImportOutcome.REJECTED) {
+                rejected++;
+            } else {
+                skipped++;
             }
 
-            task.setTotalPoiFound(found);
+            /*task.setTotalPoiFound(found);
             task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            task.setTotalPoiUpdated(updated);*/
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("google_maps", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("Google Maps import failed: " + ex.getMessage(), ex);
@@ -303,16 +327,19 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFromYandex(DataImportTask task, Long userId) {
-        log.info("Importing from Yandex: {}", task.getQuery());
+        //log.info("Importing from Yandex: {}", task.getQuery());
+        log.info("Importing from Yandex: taskId={}, query='{}'", task.getId(), task.getQuery());
+
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
 
         try {
-            if (task.getCityId() == null) {
-                throw new IllegalArgumentException("City ID is required for Yandex import");
-            }
+            requireCityId(task, "Yandex");
+
 
             MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
                     task.getCityId(),
@@ -336,13 +363,19 @@ public class ImportServiceImpl implements ImportService {
             );
 
             found++;
-            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, mlPoiWorkerClient.enrichRaw(enrichRequest), null);
+            if (outcome == PoiImportOutcome.CREATED) {
                 created++;
+            } else if (outcome == PoiImportOutcome.UPDATED) {
+                updated++;
+            } else if (outcome == PoiImportOutcome.REJECTED) {
+                rejected++;
+            } else {
+                skipped++;
             }
 
-            task.setTotalPoiFound(found);
-            task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("yandex", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("Yandex import failed: " + ex.getMessage(), ex);
@@ -350,16 +383,17 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFromWikipedia(DataImportTask task, Long userId) {
-        log.info("Importing from Wikipedia: {}", task.getQuery());
+        log.info("Importing from Wikipedia: taskId={}, sourceUrl='{}'", task.getId(), task.getQuery());
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
 
         try {
-            if (task.getCityId() == null) {
-                throw new IllegalArgumentException("City ID is required for Wikipedia import");
-            }
+            requireCityId(task, "Wikipedia");
+
 
             MlImportFromSourceRequest request = new MlImportFromSourceRequest();
             request.setSourceCode("WIKIPEDIA");
@@ -376,11 +410,14 @@ public class ImportServiceImpl implements ImportService {
                 created++;
             } else if (outcome == PoiImportOutcome.UPDATED) {
                 updated++;
+            } else if (outcome == PoiImportOutcome.REJECTED) {
+                rejected++;
+            } else {
+                skipped++;
             }
 
-            task.setTotalPoiFound(found);
-            task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("wikipedia", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("Wikipedia import failed: " + ex.getMessage(), ex);
@@ -388,19 +425,22 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFrom2GIS(DataImportTask task, Long userId) {
-        log.info("Importing from 2GIS: {}", task.getQuery());
+        log.info("Importing from 2GIS: taskId={}, query='{}', cityId={}", task.getId(), task.getQuery(), task.getCityId());
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
+        int processed = 0;
 
         try {
-            if (task.getCityId() == null) {
-                throw new IllegalArgumentException("City ID is required for 2GIS import");
-            }
+            requireCityId(task, "2GIS");
 
             var rawPois = twoGisClient.search(task.getQuery(), task.getCityId());
             found = rawPois.size();
+            log.info("2GIS raw POIs fetched: taskId={}, totalRaw={}", task.getId(), found);
+
 
             for (var rawPoi : rawPois) {
                 try {
@@ -408,6 +448,9 @@ public class ImportServiceImpl implements ImportService {
                         log.info("Stopping 2GIS import for cancelled task {}", task.getId());
                         break;
                     }
+                    processed++;
+                    log.info("Processing 2GIS POI: taskId={}, index={}, externalId={}, name='{}', sourceUrl={}",
+                            task.getId(), processed, rawPoi.getExternalId(), rawPoi.getName(), rawPoi.getSourceUrl());
 
                     if (rawPoi.getName() == null || rawPoi.getName().isBlank()
                             || rawPoi.getLatitude() == null
@@ -420,9 +463,16 @@ public class ImportServiceImpl implements ImportService {
                     }
 
                     MlEnrichRawRequest enrichRequest = twoGisToMlRawMapper.toMlRequest(rawPoi, task.getCityId());
+                    log.info("Sending raw POI to ML: taskId={}, externalId={}, poiTypeCode={}, mediaCount={}, hoursCount={}",
+                            task.getId(),
+                            rawPoi.getExternalId(),
+                            rawPoi.getPoiTypeCode(),
+                            rawPoi.getMedia() != null ? rawPoi.getMedia().size() : 0,
+                            rawPoi.getHours() != null ? rawPoi.getHours().size() : 0);
                     MlEnrichResponse enrichResponse = mlPoiWorkerClient.enrichRaw(enrichRequest);
 
                     if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
+                        skipped++;
                         log.warn("Skipping invalid ML response for rawPoi externalId={}", rawPoi.getExternalId());
                         continue;
                     }
@@ -432,9 +482,18 @@ public class ImportServiceImpl implements ImportService {
                         created++;
                     } else if (outcome == PoiImportOutcome.UPDATED) {
                         updated++;
+                    } else if (outcome == PoiImportOutcome.REJECTED) {
+                        rejected++;
+                    } else {
+                        skipped++;
+                    }
+
+                    if (processed == 1 || processed % Math.max(logEvery, 1) == 0) {
+                        logTaskSummary("2gis-progress", task, found, created, updated, rejected, skipped);
                     }
 
                 } catch (Exception itemEx) {
+                    skipped++;
                     log.error("Failed to process one 2GIS POI. taskId={}, externalId={}, rawName={}, error={}",
                             task.getId(),
                             rawPoi.getExternalId(),
@@ -444,9 +503,8 @@ public class ImportServiceImpl implements ImportService {
                 }
             }
 
-            task.setTotalPoiFound(found);
-            task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("2gis", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("2GIS import failed: " + ex.getMessage(), ex);
@@ -454,16 +512,16 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFromBooking(DataImportTask task, Long userId) {
-        log.info("Importing from Booking.com: {}", task.getQuery());
+        log.info("Importing from Booking.com: taskId={}, query='{}'", task.getId(), task.getQuery());
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
 
         try {
-            if (task.getCityId() == null) {
-                throw new IllegalArgumentException("City ID is required for Booking import");
-            }
+            requireCityId(task, "Booking");
 
             MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
                     task.getCityId(),
@@ -487,13 +545,19 @@ public class ImportServiceImpl implements ImportService {
             );
 
             found++;
-            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, mlPoiWorkerClient.enrichRaw(enrichRequest), null);
+            if (outcome == PoiImportOutcome.CREATED) {
                 created++;
+            } else if (outcome == PoiImportOutcome.UPDATED) {
+                updated++;
+            } else if (outcome == PoiImportOutcome.REJECTED) {
+                rejected++;
+            } else {
+                skipped++;
             }
 
-            task.setTotalPoiFound(found);
-            task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("booking", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("Booking import failed: " + ex.getMessage(), ex);
@@ -501,16 +565,17 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importManualData(DataImportTask task, Long userId) {
-        log.info("Importing manual data: {}", task.getQuery());
+        log.info("Importing manual data: taskId={}, query='{}'", task.getId(), task.getQuery());
 
         int found = 0;
         int created = 0;
         int updated = 0;
+        int rejected = 0;
+        int skipped = 0;
 
         try {
-            if (task.getCityId() == null) {
-                throw new IllegalArgumentException("City ID is required for manual import");
-            }
+            requireCityId(task, "manual");
+
 
             MlEnrichRawRequest enrichRequest = mlRawRequestMapper.buildRequest(
                     task.getCityId(),
@@ -534,13 +599,19 @@ public class ImportServiceImpl implements ImportService {
             );
 
             found++;
-            if (processMlEnrichmentAndCreatePoi(task, userId, enrichRequest)) {
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, mlPoiWorkerClient.enrichRaw(enrichRequest), null);
+            if (outcome == PoiImportOutcome.CREATED) {
                 created++;
+            } else if (outcome == PoiImportOutcome.UPDATED) {
+                updated++;
+            } else if (outcome == PoiImportOutcome.REJECTED) {
+                rejected++;
+            } else {
+                skipped++;
             }
 
-            task.setTotalPoiFound(found);
-            task.setTotalPoiCreated(created);
-            task.setTotalPoiUpdated(updated);
+            applyCounters(task, found, created, updated, rejected, skipped);
+            logTaskSummary("manual", task, found, created, updated, rejected, skipped);
 
         } catch (Exception ex) {
             throw new RuntimeException("Manual import failed: " + ex.getMessage(), ex);
@@ -563,8 +634,16 @@ public class ImportServiceImpl implements ImportService {
             String externalId
     ) {
         if (enrichResponse == null || enrichResponse.getPoiDraft() == null || enrichResponse.getStatusRecommendation() == null) {
-            throw new RuntimeException("Invalid ML enrich response");
+            log.warn("Invalid ML enrich response: taskId={}, externalId={}", task.getId(), externalId);
+            return PoiImportOutcome.SKIPPED;
         }
+
+        log.info("ML enrich response received: taskId={}, externalId={}, status={}, quality={}, warnings={}",
+                task.getId(),
+                externalId,
+                enrichResponse.getStatusRecommendation(),
+                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getQualityScore() : null,
+                enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
 
         if (MlStatusRecommendation.REJECTED.equals(enrichResponse.getStatusRecommendation())) {
             log.warn("POI rejected by ML. taskId={}, externalId={}, errors={}, warnings={}",
@@ -572,7 +651,7 @@ public class ImportServiceImpl implements ImportService {
                     externalId,
                     enrichResponse.getQuality() != null ? enrichResponse.getQuality().getErrors() : null,
                     enrichResponse.getQuality() != null ? enrichResponse.getQuality().getWarnings() : null);
-            return PoiImportOutcome.SKIPPED;
+            return PoiImportOutcome.REJECTED;
         }
 
         var createRequest = mlPoiMapper.toPoiCreateRequest(enrichResponse);
@@ -585,11 +664,12 @@ public class ImportServiceImpl implements ImportService {
                 poiService.verifyPoiInternal(updatedPoi.getId());
             }
 
-            log.info("POI updated from import. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+            log.info("POI updated from import. taskId={}, externalId={}, poiId={}, statusRecommendation={}, duplicatePoiId={}",
                     task.getId(),
                     externalId,
                     updatedPoi.getId(),
-                    enrichResponse.getStatusRecommendation());
+                    enrichResponse.getStatusRecommendation(),
+                    duplicate.get().getId());
             return PoiImportOutcome.UPDATED;
         }
 
@@ -600,23 +680,41 @@ public class ImportServiceImpl implements ImportService {
             poiService.verifyPoiInternal(createdPoi.getId());
         }
 
-        log.info("POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}",
+        log.info("POI imported successfully. taskId={}, externalId={}, poiId={}, statusRecommendation={}, slug={}",
                 task.getId(),
                 externalId,
                 createdPoi.getId(),
-                enrichResponse.getStatusRecommendation());
+                enrichResponse.getStatusRecommendation(),
+                createdPoi.getSlug());
         return PoiImportOutcome.CREATED;
     }
 
     private boolean isTaskCancelled(Long taskId) {
         return importTaskRepository.findById(taskId)
-                .map(task -> task.getStatus() == DataImportTask.ImportStatus.FAILED
-                        && task.getErrorMessage() != null
-                        && task.getErrorMessage().startsWith("Cancelled by user"))
+                .map(this::isCancelledTask)
                 .orElse(false);
     }
 
-    private Mono<JsonNode> fetchDataFromApi(String apiUrl, String apiKey) {
+    private void applyCounters(DataImportTask task, int found, int created, int updated, int rejected, int skipped) {
+        task.setTotalPoiFound(found);
+        task.setTotalPoiCreated(created);
+        task.setTotalPoiUpdated(updated);
+        task.setTotalPoiRejected(rejected);
+        task.setTotalPoiSkipped(skipped);
+    }
+
+    private void logTaskSummary(String stage, DataImportTask task, int found, int created, int updated, int rejected, int skipped) {
+        log.info("Import summary [{}]: taskId={}, found={}, created={}, updated={}, rejected={}, skipped={}",
+                stage, task.getId(), found, created, updated, rejected, skipped);
+    }
+
+    private void requireCityId(DataImportTask task, String sourceName) {
+        if (task.getCityId() == null) {
+            throw new IllegalArgumentException("City ID is required for " + sourceName + " import");
+        }
+    }
+
+    /*private Mono<JsonNode> fetchDataFromApi(String apiUrl, String apiKey) {
         return webClient.get()
                 .uri(apiUrl)
                 .header("Authorization", "Bearer " + apiKey)
@@ -625,5 +723,15 @@ public class ImportServiceImpl implements ImportService {
                         Mono.error(new RuntimeException("API call failed: " + response.statusCode())))
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(30));
+    }*/
+
+    private boolean isCancelledTask(DataImportTask task) {
+        return task.getStatus() == DataImportTask.ImportStatus.FAILED
+                && task.getErrorMessage() != null
+                && task.getErrorMessage().startsWith(CANCELLED_PREFIX);
+    }
+
+    private int safeInt(Integer value) {
+        return value != null ? value : 0;
     }
 }

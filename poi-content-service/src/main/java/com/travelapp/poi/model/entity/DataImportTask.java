@@ -45,6 +45,12 @@ public class DataImportTask {
     @Column(name = "total_poi_updated")
     private Integer totalPoiUpdated = 0;
 
+    @Column(name = "total_poi_rejected")
+    private Integer totalPoiRejected = 0;
+
+    @Column(name = "total_poi_skipped")
+    private Integer totalPoiSkipped = 0;
+
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
 

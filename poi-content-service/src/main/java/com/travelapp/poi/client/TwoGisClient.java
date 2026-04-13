@@ -14,10 +14,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Component
 @RequiredArgsConstructor
@@ -32,19 +29,98 @@ public class TwoGisClient {
 
         CityExternalDto city = resolveCity(cityId);
         String cityName = city != null ? StringUtils.trimToNull(city.getName()) : null;
-        String effectiveQuery = buildEffectiveQuery(query, cityName);
-        String requestedType = inferRequestedPoiType(query);
 
-        log.info("Effective 2GIS query='{}', requestedType={}", effectiveQuery, requestedType);
+        if (StringUtils.isBlank(query)) {
+            throw new IllegalArgumentException("2GIS query must not be blank");
+        }
+        if (StringUtils.isBlank(cityName)) {
+            throw new IllegalArgumentException("City name is required to search in 2GIS");
+        }
 
         WebClient webClient = WebClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .build();
 
+        String twoGisCityId = resolveTwoGisCityId(webClient, cityName);
+        String requestedType = inferRequestedPoiType(query);
+
+        log.info("2GIS search context: query='{}', localCityId={}, cityName='{}', twoGisCityId='{}', requestedType={}, pageSize={}, maxPages={}",
+                query, cityId, cityName, twoGisCityId, requestedType, properties.getPageSize(), properties.getMaxPages());
+
+        List<TwoGisRawPoiDto> aggregated = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+
+        int pageSize = properties.getPageSize() != null && properties.getPageSize() > 0
+                ? properties.getPageSize()
+                : 50;
+
+        int maxPages = properties.getMaxPages() != null && properties.getMaxPages() > 0
+                ? properties.getMaxPages()
+                : 20;
+
+        for (int page = 1; page <= maxPages; page++) {
+            JsonNode response = fetchPage(webClient, query, twoGisCityId, page, pageSize);
+            JsonNode items = response.path("result").path("items");
+
+            int pageItems = items.isArray() ? items.size() : 0;
+            int total = response.path("result").path("total").asInt(-1);
+
+            log.info("2GIS page {} fetched: pageItems={}, reportedTotal={}", page, pageItems, total);
+
+            if (pageItems == 0) {
+                break;
+            }
+
+            List<TwoGisRawPoiDto> parsedPage = parseResponse(response, requestedType);
+            int addedOnPage = 0;
+
+            for (TwoGisRawPoiDto dto : parsedPage) {
+                String dedupeKey = firstNonBlank(
+                        dto.getExternalId(),
+                        dto.getSourceUrl(),
+                        dto.getName() + "|" + dto.getAddress()
+                );
+
+                if (dedupeKey != null && !seenIds.add(dedupeKey)) {
+                    continue;
+                }
+
+                aggregated.add(dto);
+                addedOnPage++;
+            }
+
+            log.info("2GIS page {} parsed: acceptedOnPage={}, aggregated={}", page, addedOnPage, aggregated.size());
+
+            if (pageItems < pageSize) {
+                break;
+            }
+
+            if (total > 0 && aggregated.size() >= total) {
+                break;
+            }
+        }
+
+        log.info("2GIS search completed: aggregatedResults={}, query='{}', cityId={}",
+                aggregated.size(), query, cityId);
+
+        return aggregated;
+    }
+
+    private JsonNode fetchPage(
+            WebClient webClient,
+            String query,
+            String twoGisCityId,
+            int page,
+            int pageSize
+    ) {
+
         JsonNode response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/3.0/items")
-                        .queryParam("q", effectiveQuery)
+                        .queryParam("q", query)
+                        .queryParam("city_id", twoGisCityId)
+                        .queryParam("page", page)
+                        .queryParam("page_size", pageSize)
                         .queryParam("fields",
                                 "items.point," +
                                         "items.contact_groups," +
@@ -68,17 +144,54 @@ public class TwoGisClient {
                                 .defaultIfEmpty("Unknown 2GIS API error")
                                 .flatMap(body -> Mono.error(new RuntimeException(
                                         "2GIS API request failed: " + clientResponse.statusCode() + ", body=" + body
-                                )))
-                )
+                                ))))
                 .bodyToMono(JsonNode.class)
                 .block();
 
-        log.info("2GIS raw response result.items size={}",
-                response != null && response.path("result").path("items").isArray()
-                        ? response.path("result").path("items").size()
-                        : -1);
+        log.info("2GIS raw response page {}: {}", page, response != null ? response.toPrettyString() : null);
+        return response;
+    }
 
-        return parseResponse(response, requestedType);
+    private String resolveTwoGisCityId(WebClient webClient, String cityName) {
+        JsonNode response = webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/3.0/items/geocode")
+                        .queryParam("q", cityName)
+                        .queryParam("type", "adm_div.city")
+                        .queryParam("key", properties.getApiKey())
+                        .build())
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, clientResponse ->
+                        clientResponse.bodyToMono(String.class)
+                                .defaultIfEmpty("Unknown 2GIS geocode error")
+                                .flatMap(body -> Mono.error(new RuntimeException(
+                                        "2GIS geocode failed: " + clientResponse.statusCode() + ", body=" + body
+                                ))))
+                .bodyToMono(JsonNode.class)
+                .block();
+
+        log.info("2GIS geocode city response for '{}': {}", cityName, response != null ? response.toPrettyString() : null);
+
+        JsonNode items = response.path("result").path("items");
+        if (!items.isArray() || items.isEmpty()) {
+            throw new IllegalStateException("2GIS city geocode returned no results for city: " + cityName);
+        }
+
+        for (JsonNode item : items) {
+            String subtype = item.path("subtype").asText("");
+            String id = item.path("id").asText(null);
+
+            if ("city".equalsIgnoreCase(subtype) && StringUtils.isNotBlank(id)) {
+                return id;
+            }
+        }
+
+        String fallbackId = items.get(0).path("id").asText(null);
+        if (StringUtils.isBlank(fallbackId)) {
+            throw new IllegalStateException("2GIS city geocode returned items without id for city: " + cityName);
+        }
+
+        return fallbackId;
     }
 
     private CityExternalDto resolveCity(Long cityId) {
@@ -94,27 +207,13 @@ public class TwoGisClient {
         }
     }
 
-    private String buildEffectiveQuery(String query, String cityName) {
-        String baseQuery = StringUtils.trimToEmpty(query);
-
-        if (StringUtils.isBlank(cityName)) {
-            return baseQuery;
-        }
-
-        if (baseQuery.toLowerCase().contains(cityName.toLowerCase())) {
-            return baseQuery;
-        }
-
-        return (baseQuery + " " + cityName).trim();
-    }
-
     private List<TwoGisRawPoiDto> parseResponse(JsonNode response, String requestedType) {
         List<TwoGisRawPoiDto> result = new ArrayList<>();
 
         JsonNode items = response.path("result").path("items");
         if (items.isArray() && !items.isEmpty()) {
             log.info("2GIS raw response result.items size={}", items.size());
-            log.debug("2GIS first item raw: {}", items.get(0).toPrettyString());
+            log.info("2GIS first item raw: {}", items.get(0).toPrettyString());
         }
 
         for (JsonNode item : items) {
@@ -242,13 +341,10 @@ public class TwoGisClient {
         if (value == null || value.isBlank()) {
             return null;
         }
-
         String normalized = value.trim();
-
         if ("24:00".equals(normalized)) {
             return "23:59";
         }
-
         return normalized;
     }
 
@@ -346,7 +442,6 @@ public class TwoGisClient {
         if (value == null) {
             return null;
         }
-
         String normalized = value.trim().replaceAll("\\s+", " ");
         return normalized.isBlank() ? null : normalized;
     }
@@ -355,13 +450,11 @@ public class TwoGisClient {
         if (values == null) {
             return null;
         }
-
         for (String value : values) {
             if (StringUtils.isNotBlank(value)) {
                 return value.trim();
             }
         }
-
         return null;
     }
 
@@ -465,36 +558,16 @@ public class TwoGisClient {
                 String.join(" ", rubrics)
         ).toLowerCase();
 
-        if (containsAny(text, "кафе", "кофейня", "coffee")) {
-            return "cafe";
-        }
-        if (containsAny(text, "ресторан", "бар", "паб", "столовая", "пиццерия", "бургер")) {
-            return "restaurant";
-        }
-        if (containsAny(text, "отель", "гостиница", "хостел", "апартаменты")) {
-            return "hotel";
-        }
-        if (containsAny(text, "парк", "сквер", "сад")) {
-            return "park";
-        }
-        if (containsAny(text, "музей", "собор", "храм", "театр", "памятник", "достопримечательность", "галерея")) {
-            return "landmark";
-        }
-        if (containsAny(text, "магазин", "shop")) {
-            return "shop";
-        }
-        if (containsAny(text, "аптека")) {
-            return "pharmacy";
-        }
-        if (containsAny(text, "больница", "клиника")) {
-            return "hospital";
-        }
-        if (containsAny(text, "школа", "университет")) {
-            return "school";
-        }
-        if (containsAny(text, "банкомат", "atm")) {
-            return "atm";
-        }
+        if (containsAny(text, "кафе", "кофейня", "coffee")) return "cafe";
+        if (containsAny(text, "ресторан", "бар", "паб", "столовая", "пиццерия", "бургер")) return "restaurant";
+        if (containsAny(text, "отель", "отели", "гостиница", "гостиницы", "хостел", "хостелы", "апартаменты")) return "hotel";
+        if (containsAny(text, "парк", "сквер", "сад")) return "park";
+        if (containsAny(text, "музей", "собор", "храм", "театр", "памятник", "достопримечательность", "галерея")) return "landmark";
+        if (containsAny(text, "магазин", "shop")) return "shop";
+        if (containsAny(text, "аптека")) return "pharmacy";
+        if (containsAny(text, "больница", "клиника")) return "hospital";
+        if (containsAny(text, "школа", "университет")) return "school";
+        if (containsAny(text, "банкомат", "atm")) return "atm";
 
         return "landmark";
     }
@@ -502,21 +575,11 @@ public class TwoGisClient {
     private String inferRequestedPoiType(String query) {
         String normalized = StringUtils.defaultString(query).toLowerCase();
 
-        if (containsAny(normalized, "кафе", "кофейня")) {
-            return "cafe";
-        }
-        if (containsAny(normalized, "ресторан", "бар", "паб", "пиццерия", "фастфуд")) {
-            return "restaurant";
-        }
-        if (containsAny(normalized, "отель", "гостиница", "хостел")) {
-            return "hotel";
-        }
-        if (containsAny(normalized, "парк", "сквер", "сад")) {
-            return "park";
-        }
-        if (containsAny(normalized, "музей", "театр", "собор", "храм", "памятник", "достопримечательность")) {
-            return "landmark";
-        }
+        if (containsAny(normalized, "кафе", "кофейня", "кофейни")) return "cafe";
+        if (containsAny(normalized, "ресторан", "рестораны", "бар", "паб", "пиццерия", "фастфуд")) return "restaurant";
+        if (containsAny(normalized, "отель", "отели", "гостиница", "гостиницы", "хостел", "хостелы")) return "hotel";
+        if (containsAny(normalized, "парк", "парки", "сквер", "сад")) return "park";
+        if (containsAny(normalized, "музей", "музеи", "театр", "театры", "собор", "храм", "памятник", "достопримечательность")) return "landmark";
 
         return null;
     }
@@ -526,6 +589,9 @@ public class TwoGisClient {
     }
 
     private boolean containsAny(String text, String... values) {
+        if (text == null) {
+            return false;
+        }
         for (String value : values) {
             if (text.contains(value)) {
                 return true;

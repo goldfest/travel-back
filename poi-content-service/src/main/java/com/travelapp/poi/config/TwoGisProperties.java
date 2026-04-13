@@ -10,4 +10,6 @@ import org.springframework.stereotype.Component;
 public class TwoGisProperties {
     private String baseUrl;
     private String apiKey;
+    private Integer pageSize = 10;
+    private Integer maxPages = 20;
 }

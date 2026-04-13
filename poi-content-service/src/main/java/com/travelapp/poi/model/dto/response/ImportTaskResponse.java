@@ -18,6 +18,8 @@ public class ImportTaskResponse {
     private Integer totalPoiFound;
     private Integer totalPoiCreated;
     private Integer totalPoiUpdated;
+    private Integer totalPoiRejected;
+    private Integer totalPoiSkipped;
     private String errorMessage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
