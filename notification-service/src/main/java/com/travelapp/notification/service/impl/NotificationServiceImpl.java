@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -35,6 +36,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional
 public class NotificationServiceImpl implements NotificationService {
+
+    private static final List<String> ROUTE_SCHEDULED_TYPES = List.of(
+            Notification.Type.ROUTE_DAY_START.getValue(),
+            Notification.Type.ROUTE_REMINDER.getValue()
+    );
 
     private final NotificationRepository notificationRepository;
     private final NotificationMapper notificationMapper;
@@ -47,25 +53,25 @@ public class NotificationServiceImpl implements NotificationService {
             @CacheEvict(value = "notificationStats", key = "#request.userId")
     })
     public NotificationResponse createNotification(CreateNotificationRequest request) {
-        log.info("Creating notification for user {}", request.getUserId());
-
+        log.info("Creating notification for user {} type={} eventKey={}", request.getUserId(), request.getType(), request.getEventKey());
         validateUserExists(request.getUserId());
 
-        Notification notification = Notification.builder()
-                .userId(request.getUserId())
-                .type(request.getType())
-                .title(request.getTitle())
-                .description(request.getDescription())
-                .scheduledAt(request.getScheduledAt())
-                .routeId(request.getRouteId())
-                .poiId(request.getPoiId())
-                .isRead(false)
-                .build();
+        if (request.getEventKey() != null && !request.getEventKey().isBlank()) {
+            Optional<Notification> existing = notificationRepository.findByEventKey(request.getEventKey());
+            if (existing.isPresent()) {
+                return mapToResponse(existing.get());
+            }
+        }
 
+        Notification notification = notificationMapper.toEntity(request);
         Notification saved = notificationRepository.save(notification);
 
-        if (shouldSendEmail(saved)) {
-            sendEmailAsync(saved);
+        if (saved.getScheduledAt() == null) {
+            saved.markAsSent();
+            saved = notificationRepository.save(saved);
+            if (shouldSendEmail(saved)) {
+                sendEmailAsync(saved);
+            }
         }
 
         return mapToResponse(saved);
@@ -95,8 +101,7 @@ public class NotificationServiceImpl implements NotificationService {
         Pageable pageable = filter.toPageable();
 
         if (filter.getType() != null && filter.getIsRead() != null) {
-            notifications = notificationRepository.findByUserIdAndTypeAndIsRead(
-                    userId, filter.getType(), filter.getIsRead(), pageable);
+            notifications = notificationRepository.findByUserIdAndTypeAndIsRead(userId, filter.getType(), filter.getIsRead(), pageable);
         } else if (filter.getType() != null) {
             notifications = notificationRepository.findByUserIdAndType(userId, filter.getType(), pageable);
         } else if (filter.getIsRead() != null) {
@@ -112,8 +117,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     public NotificationResponse markAsRead(Long id, Long userId) {
         Notification notification = notificationRepository.findById(id)
-                .orElseThrow(() -> new NotificationNotFoundException(
-                        String.format("Notification with id %d not found", id)));
+                .orElseThrow(() -> new NotificationNotFoundException(String.format("Notification with id %d not found", id)));
 
         if (!notification.getUserId().equals(userId)) {
             throw new UnauthorizedAccessException("User is not authorized to access this notification");
@@ -127,18 +131,17 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     public void markAllAsRead(Long userId) {
         List<Notification> unread = notificationRepository.findByUserIdAndIsReadFalse(userId);
-        if (unread.isEmpty()) return;
-
+        if (unread.isEmpty()) {
+            return;
+        }
         unread.forEach(Notification::markAsRead);
         notificationRepository.saveAll(unread);
-        log.info("Marked {} notifications as read for user {}", unread.size(), userId);
     }
 
     @Override
     public void deleteNotification(Long id, Long userId) {
         Notification notification = notificationRepository.findById(id)
-                .orElseThrow(() -> new NotificationNotFoundException(
-                        String.format("Notification with id %d not found", id)));
+                .orElseThrow(() -> new NotificationNotFoundException(String.format("Notification with id %d not found", id)));
 
         if (!notification.getUserId().equals(userId)) {
             throw new UnauthorizedAccessException("User is not authorized to delete this notification");
@@ -153,19 +156,19 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public void deleteScheduledRouteNotifications(Long routeId) {
+        notificationRepository.deleteByRouteIdAndTypes(routeId, ROUTE_SCHEDULED_TYPES);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public NotificationStatsResponse getUserNotificationStats(Long userId) {
         Long totalCount = notificationRepository.countByUserId(userId);
         Long unreadCount = notificationRepository.countByUserIdAndIsReadFalse(userId);
 
         List<Object[]> typeCounts = notificationRepository.countByUserIdGroupByType(userId);
-
         Map<String, Long> typeCountMap = new HashMap<>();
-        typeCounts.forEach(result -> {
-            String type = (String) result[0];
-            Long count = (Long) result[1];
-            typeCountMap.put(type, count);
-        });
+        typeCounts.forEach(result -> typeCountMap.put((String) result[0], (Long) result[1]));
 
         return NotificationStatsResponse.builder()
                 .totalCount(totalCount)
@@ -181,24 +184,20 @@ public class NotificationServiceImpl implements NotificationService {
     @Scheduled(fixedDelayString = "${notification.scheduler.fixed-delay:60000}")
     public List<NotificationResponse> sendScheduledNotifications() {
         LocalDateTime now = LocalDateTime.now();
-
-        // ✅ правильная выборка: scheduledAt <= now и ещё НЕ отправляли
         List<Notification> scheduled = notificationRepository.findScheduledReady(now);
-
         if (scheduled.isEmpty()) {
-            log.debug("No scheduled notifications to send");
             return List.of();
         }
 
-        log.info("Found {} scheduled notifications to send", scheduled.size());
-
         for (Notification n : scheduled) {
             try {
-                sendNotificationImmediately(NotificationResponse.fromEntity(n));
-                n.markAsSent(); // ✅ только после успешной отправки
+                n.markAsSent();
+                if (shouldSendEmail(n)) {
+                    sendEmailAsync(n);
+                }
             } catch (Exception e) {
-                // sentAt не ставим — останется в очереди на следующую попытку
-                log.error("Failed to send scheduled notification {}: {}", n.getId(), e.getMessage(), e);
+                n.markAsFailed();
+                log.error("Failed to activate scheduled notification {}: {}", n.getId(), e.getMessage(), e);
             }
         }
 
@@ -213,28 +212,9 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public void sendBatchNotifications(List<CreateNotificationRequest> requests) {
-        log.info("Sending batch of {} notifications", requests.size());
-
         for (CreateNotificationRequest request : requests) {
-            validateUserExists(request.getUserId());
+            createNotification(request);
         }
-
-        List<Notification> saved = notificationRepository.saveAll(
-                requests.stream()
-                        .map(notificationMapper::toEntity)
-                        .collect(Collectors.toList())
-        );
-
-        for (Notification n : saved) {
-            try {
-                sendNotificationImmediately(NotificationResponse.fromEntity(n));
-                n.markAsSent();
-            } catch (Exception e) {
-                log.error("Failed to send batch notification {}: {}", n.getId(), e.getMessage(), e);
-            }
-        }
-
-        notificationRepository.saveAll(saved);
     }
 
     private void validateUserExists(Long userId) {
@@ -250,15 +230,16 @@ public class NotificationServiceImpl implements NotificationService {
             log.warn("Failed to send email for notification {}: {}", notification.getId(), e.getMessage());
         }
     }
+
     private boolean shouldSendEmail(Notification notification) {
         if (notification.getType() == null) {
             return false;
         }
-
         return Notification.Type.SYSTEM.getValue().equalsIgnoreCase(notification.getType())
                 || Notification.Type.ROUTE_REMINDER.getValue().equalsIgnoreCase(notification.getType())
                 || Notification.Type.POI_UPDATE.getValue().equalsIgnoreCase(notification.getType());
     }
+
     private NotificationResponse mapToResponse(Notification notification) {
         return notificationMapper.toResponse(notification);
     }

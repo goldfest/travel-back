@@ -109,22 +109,37 @@ public class GraphImportServiceImpl implements GraphImportService {
         try {
             long startedAt = System.currentTimeMillis();
 
+            log.info("Graph import started: cityId={}, versionId={}, osmPath={}, bbox=[{}, {}]-[{}, {}], poiCount={}",
+                    request.getCityId(),
+                    version.getId(),
+                    osmPath,
+                    bbox.minLat(),
+                    bbox.minLng(),
+                    bbox.maxLat(),
+                    bbox.maxLng(),
+                    pois.size());
+
             long parseStartedAt = System.currentTimeMillis();
+            log.info("Graph import phase started: cityId={}, versionId={}, phase=PARSING_OSM", request.getCityId(), version.getId());
             ParsedGraph parsedGraph = parseOsmXml(osmPath, request.getCityId(), version, bbox);
             long parseMs = System.currentTimeMillis() - parseStartedAt;
 
             long saveNodesStartedAt = System.currentTimeMillis();
+            log.info("Graph import phase started: cityId={}, versionId={}, phase=PERSIST_NODES, nodes={}", request.getCityId(), version.getId(), parsedGraph.nodesByOsmId().size());
             persistenceService.persistNodes(parsedGraph.nodesByOsmId().values());
             long saveNodesMs = System.currentTimeMillis() - saveNodesStartedAt;
 
             long saveEdgesStartedAt = System.currentTimeMillis();
+            log.info("Graph import phase started: cityId={}, versionId={}, phase=PERSIST_EDGES, edges={}", request.getCityId(), version.getId(), parsedGraph.edges().size());
             persistenceService.persistEdges(parsedGraph.edges());
             long saveEdgesMs = System.currentTimeMillis() - saveEdgesStartedAt;
 
             long bindStartedAt = System.currentTimeMillis();
+            log.info("Graph import phase started: cityId={}, versionId={}, phase=BIND_POIS, poiCount={}", request.getCityId(), version.getId(), pois.size());
             int boundPois = bindPois(request.getCityId(), version, pois);
             long bindMs = System.currentTimeMillis() - bindStartedAt;
 
+            log.info("Graph import phase started: cityId={}, versionId={}, phase=ACTIVATE_VERSION", request.getCityId(), version.getId());
             graphVersionRepository.archiveActiveByCityId(request.getCityId());
             version.setStatus(CityGraphVersion.Status.ACTIVE);
             version.setImportedAt(LocalDateTime.now());

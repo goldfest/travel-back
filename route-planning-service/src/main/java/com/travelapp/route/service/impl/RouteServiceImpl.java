@@ -49,6 +49,7 @@ public class RouteServiceImpl implements RouteService {
     private final RoutePathCacheService routePathCacheService;
     private final GraphVersionService graphVersionService;
     private final RouteGraphPreparationCoordinator routeGraphPreparationCoordinator;
+    private final com.travelapp.route.service.RouteNotificationService routeNotificationService;
 
     @Override
     @Transactional
@@ -68,18 +69,15 @@ public class RouteServiceImpl implements RouteService {
         populateRouteDays(route, request.getDays(), poiMap);
 
         if (Boolean.TRUE.equals(request.getAutoOptimize())) {
-            route.setIsOptimized(true);
-            route.setOptimizationMode(request.getOptimizationMode());
-            
-RouteOptimizationRequest optimizationRequest = new RouteOptimizationRequest();
-optimizationRequest.setOptimizationMode(request.getOptimizationMode());
-route = optimizationService.optimizeRoute(route, optimizationRequest);
+            log.warn("Auto optimize on route creation is skipped because daySettings/visit durations are not provided yet");
+            route.setIsOptimized(false);
         }
 
         Route savedRoute = routeRepository.save(route);
 
         if (!hasAnyPoints(savedRoute)) {
             RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+            routeNotificationService.notifyRouteCreated(savedRoute);
             log.info("Route created successfully without points cache rebuild: {}", savedRoute.getId());
             return response;
         }
@@ -91,6 +89,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
 
             RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
             response.addAdditionalProperty("buildMessage", "Маршрут строится, подождите");
+            routeNotificationService.notifyRouteCreated(savedRoute);
             log.info("Route {} saved in GRAPH_PREPARING for city {}", savedRoute.getId(), savedRoute.getCityId());
             return response;
         }
@@ -103,6 +102,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         savedRoute = routeRepository.save(savedRoute);
 
         RouteResponse response = toResponseWithWarnings(savedRoute, buildWarnings(savedRoute, poiMap));
+        routeNotificationService.notifyRouteCreated(savedRoute);
         log.info("Route created successfully: {}", savedRoute.getId());
         return response;
     }
@@ -206,7 +206,9 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
     @Transactional
     @CacheEvict(value = "routes", key = "#userId + '_' + #routeId")
     public void deleteRoute(Long userId, Long routeId) {
-        routeRepository.delete(getOwnedRoute(userId, routeId));
+        Route route = getOwnedRoute(userId, routeId);
+        routeNotificationService.deleteRouteNotifications(route);
+        routeRepository.delete(route);
     }
 
     @Override
@@ -277,17 +279,27 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
             throw new RouteValidationException("Объект уже добавлен в этот день маршрута");
         }
 
-        short actualOrder = orderIndex != null ? orderIndex : nextOrderIndex(routeDay);
-        shiftRoutePointsOrder(routeDay, actualOrder);
+        List<RoutePoint> existingPoints = routePointRepository.findByRouteDayIdOrderByOrderIndexAsc(routeDay.getId());
+        short actualOrder = orderIndex != null
+                ? (short) Math.max(1, Math.min(orderIndex, (short) (existingPoints.size() + 1)))
+                : (short) (existingPoints.size() + 1);
+
+        bumpExistingDayPointsToTemporaryOrder(existingPoints);
 
         RoutePoint routePoint = new RoutePoint();
-        routePoint.setOrderIndex(actualOrder);
+        routePoint.setOrderIndex((short) (TEMP_ORDER_BASE + existingPoints.size() + 1));
         routePoint.setPoiId(poiId);
         routePoint.setEstimatedVisitMinutes(60);
         applyPoiSnapshot(routePoint, poi);
         routeDay.addRoutePoint(routePoint);
+        routePointRepository.saveAndFlush(routePoint);
 
-        Route saved = routeRepository.save(route);
+        List<RoutePoint> finalPoints = new ArrayList<>(existingPoints);
+        finalPoints.add(actualOrder - 1, routePoint);
+        applyFinalPointOrder(routeDay, finalPoints);
+
+        Route saved = routeRepository.findById(route.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         routePathCacheService.rebuildRoutePaths(saved.getId());
         saved = routeRepository.findById(saved.getId())
@@ -311,10 +323,13 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         RouteDay day = point.getRouteDay();
         day.removeRoutePoint(point);
         routePointRepository.delete(point);
+        routePointRepository.flush();
 
-        normalizeDayOrder(day);
+        persistDayPointOrderSafely(day);
 
-        Route saved = routeRepository.save(route);
+
+        Route saved = routeRepository.findById(route.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Маршрут не найден"));
 
         routePathCacheService.rebuildRoutePaths(saved.getId());
         saved = routeRepository.findById(saved.getId())
@@ -346,16 +361,16 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
                 .collect(Collectors.toMap(RoutePoint::getId, Function.identity()));
 
         List<RoutePoint> reordered = new ArrayList<>();
-        for (int i = 0; i < pointIdsInOrder.size(); i++) {
-            RoutePoint point = pointMap.get(pointIdsInOrder.get(i));
-            point.setOrderIndex((short) (i + 1));
+        for (Long pointId : pointIdsInOrder) {
+            RoutePoint point = pointMap.get(pointId);
+            if (point == null) {
+                throw new RouteValidationException("Некорректный список точек для сортировки внутри дня");
+            }
             reordered.add(point);
         }
 
-        day.getRoutePoints().clear();
-        day.getRoutePoints().addAll(reordered);
-
-        persistDayPointOrderSafely(day);
+        bumpExistingDayPointsToTemporaryOrder(points);
+        applyFinalPointOrder(day, reordered);
 
         Route saved = routeRepository.save(route);
 
@@ -393,6 +408,7 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
 
         recalculateRouteMetrics(saved);
         saved = routeRepository.save(saved);
+        routeNotificationService.rescheduleOptimizedRouteNotifications(saved);
 
         return toResponseWithWarnings(saved, buildWarnings(saved, null));
     }
@@ -646,11 +662,6 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         return point;
     }
 
-    private void shiftRoutePointsOrder(RouteDay day, short fromOrder) {
-        day.getRoutePoints().stream()
-                .filter(point -> point.getOrderIndex() >= fromOrder)
-                .forEach(point -> point.setOrderIndex((short) (point.getOrderIndex() + 1)));
-    }
 
     private short nextOrderIndex(RouteDay routeDay) {
         return routePointRepository.findMaxOrderIndexByRouteDayId(routeDay.getId())
@@ -667,16 +678,6 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         return route.getRouteDays().stream()
                 .max(Comparator.comparing(RouteDay::getDayNumber))
                 .orElseThrow(() -> new ResourceNotFoundException("У маршрута нет дней"));
-    }
-
-    private void normalizeDayOrder(RouteDay day) {
-        List<RoutePoint> points = day.getRoutePoints().stream()
-                .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
-                .toList();
-
-        for (int i = 0; i < points.size(); i++) {
-            points.get(i).setOrderIndex((short) (i + 1));
-        }
     }
 
     private void recalculateRouteMetrics(Route route) {
@@ -805,18 +806,25 @@ route = optimizationService.optimizeRoute(route, optimizationRequest);
         return response;
     }
 
+    private static final short TEMP_ORDER_BASE = 10_000;
+
     private void persistDayPointOrderSafely(RouteDay day) {
         List<RoutePoint> orderedPoints = day.getRoutePoints().stream()
                 .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
                 .toList();
 
-        short tempBase = 1000;
-        for (int i = 0; i < orderedPoints.size(); i++) {
-            orderedPoints.get(i).setOrderIndex((short) (tempBase + i + 1));
-        }
-        routePointRepository.saveAll(orderedPoints);
-        routePointRepository.flush();
+        applyFinalPointOrder(day, orderedPoints);
+    }
 
+    private void bumpExistingDayPointsToTemporaryOrder(List<RoutePoint> points) {
+        for (int i = 0; i < points.size(); i++) {
+            points.get(i).setOrderIndex((short) (TEMP_ORDER_BASE + i + 1));
+        }
+        routePointRepository.saveAll(points);
+        routePointRepository.flush();
+    }
+
+    private void applyFinalPointOrder(RouteDay day, List<RoutePoint> orderedPoints) {
         for (int i = 0; i < orderedPoints.size(); i++) {
             orderedPoints.get(i).setOrderIndex((short) (i + 1));
         }
