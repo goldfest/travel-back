@@ -12,4 +12,8 @@ public class TwoGisProperties {
     private String apiKey;
     private Integer pageSize = 10;
     private Integer maxPages = 20;
+
+    private Integer gridRadiusKm = 12;     // радиус вокруг центра города
+    private Integer cellStepKm = 4;        // шаг между точками сетки
+    private Integer searchRadiusMeters = 2500;
 }

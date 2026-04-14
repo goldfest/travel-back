@@ -14,12 +14,28 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.util.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class TwoGisClient {
+
+    private static final int DEFAULT_GRID_RADIUS_KM = 12;
+    private static final int DEFAULT_CELL_STEP_KM = 4;
+    private static final int DEFAULT_SEARCH_RADIUS_METERS = 2500;
+    private static final int DEFAULT_PAGE_SIZE = 10;
+    private static final int DEFAULT_MAX_PAGES = 20;
+    private static final int MAX_2GIS_PAGE_SIZE = 10;
+    private static final int DUPLICATE_ONLY_PAGES_BREAK_THRESHOLD = 2;
 
     private final TwoGisProperties properties;
     private final CityClient cityClient;
@@ -27,81 +43,161 @@ public class TwoGisClient {
     public List<TwoGisRawPoiDto> search(String query, Long cityId) {
         log.info("Searching 2GIS API for query='{}', cityId={}", query, cityId);
 
-        CityExternalDto city = resolveCity(cityId);
-        String cityName = city != null ? StringUtils.trimToNull(city.getName()) : null;
-
         if (StringUtils.isBlank(query)) {
             throw new IllegalArgumentException("2GIS query must not be blank");
         }
-        if (StringUtils.isBlank(cityName)) {
-            throw new IllegalArgumentException("City name is required to search in 2GIS");
+        if (cityId == null) {
+            throw new IllegalArgumentException("City ID is required for grid search");
         }
+
+        CityExternalDto city = resolveCity(cityId);
+        if (city == null || city.getCenterLat() == null || city.getCenterLng() == null) {
+            throw new IllegalStateException("City center coordinates are required for grid search");
+        }
+
+        String cityName = StringUtils.trimToNull(city.getName());
+        String requestedType = inferRequestedPoiType(query);
 
         WebClient webClient = WebClient.builder()
                 .baseUrl(properties.getBaseUrl())
                 .build();
 
-        String twoGisCityId = resolveTwoGisCityId(webClient, cityName);
-        String requestedType = inferRequestedPoiType(query);
+        int gridRadiusKm = safePositive(properties.getGridRadiusKm(), DEFAULT_GRID_RADIUS_KM);
+        int cellStepKm = safePositive(properties.getCellStepKm(), DEFAULT_CELL_STEP_KM);
+        int radiusMeters = safePositive(properties.getSearchRadiusMeters(), DEFAULT_SEARCH_RADIUS_METERS);
+        int pageSize = safePageSize(properties.getPageSize());
+        int maxPages = safePositive(properties.getMaxPages(), DEFAULT_MAX_PAGES);
 
-        log.info("2GIS search context: query='{}', localCityId={}, cityName='{}', twoGisCityId='{}', requestedType={}, pageSize={}, maxPages={}",
-                query, cityId, cityName, twoGisCityId, requestedType, properties.getPageSize(), properties.getMaxPages());
+        List<SearchPoint> searchPoints = buildGridPoints(
+                city.getCenterLat(),
+                city.getCenterLng(),
+                gridRadiusKm,
+                cellStepKm
+        );
+
+        int estimatedMaxRequests = searchPoints.size() * maxPages;
+
+        log.info(
+                "2GIS grid search context: query='{}', cityId={}, cityName='{}', requestedType={}, points={}, pageSize={}, maxPages={}, radiusMeters={}, estimatedMaxRequests={}",
+                query,
+                cityId,
+                cityName,
+                requestedType,
+                searchPoints.size(),
+                pageSize,
+                maxPages,
+                radiusMeters,
+                estimatedMaxRequests
+        );
 
         List<TwoGisRawPoiDto> aggregated = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
 
-        int pageSize = properties.getPageSize() != null && properties.getPageSize() > 0
-                ? properties.getPageSize()
-                : 50;
+        int pointIndex = 0;
+        for (SearchPoint point : searchPoints) {
+            pointIndex++;
 
-        int maxPages = properties.getMaxPages() != null && properties.getMaxPages() > 0
-                ? properties.getMaxPages()
-                : 20;
+            log.info(
+                    "2GIS grid point {}/{}: lat={}, lng={}, distanceKm={}",
+                    pointIndex,
+                    searchPoints.size(),
+                    point.lat(),
+                    point.lng(),
+                    point.distanceKm()
+            );
 
-        for (int page = 1; page <= maxPages; page++) {
-            JsonNode response = fetchPage(webClient, query, twoGisCityId, page, pageSize);
-            JsonNode items = response.path("result").path("items");
+            int duplicateOnlyPagesInRow = 0;
 
-            int pageItems = items.isArray() ? items.size() : 0;
-            int total = response.path("result").path("total").asInt(-1);
-
-            log.info("2GIS page {} fetched: pageItems={}, reportedTotal={}", page, pageItems, total);
-
-            if (pageItems == 0) {
-                break;
-            }
-
-            List<TwoGisRawPoiDto> parsedPage = parseResponse(response, requestedType);
-            int addedOnPage = 0;
-
-            for (TwoGisRawPoiDto dto : parsedPage) {
-                String dedupeKey = firstNonBlank(
-                        dto.getExternalId(),
-                        dto.getSourceUrl(),
-                        dto.getName() + "|" + dto.getAddress()
+            for (int page = 1; page <= maxPages; page++) {
+                JsonNode response = fetchPage(
+                        webClient,
+                        query,
+                        point.lng(),
+                        point.lat(),
+                        radiusMeters,
+                        page,
+                        pageSize
                 );
 
-                if (dedupeKey != null && !seenIds.add(dedupeKey)) {
-                    continue;
+                if (hasLogicalApiError(response)) {
+                    log.warn(
+                            "2GIS logical API error on point {}/{} page {}. Response={}",
+                            pointIndex,
+                            searchPoints.size(),
+                            page,
+                            response != null ? response.toPrettyString() : null
+                    );
+                    break;
                 }
 
-                aggregated.add(dto);
-                addedOnPage++;
-            }
+                JsonNode items = response.path("result").path("items");
+                int pageItems = items.isArray() ? items.size() : 0;
+                int total = response.path("result").path("total").asInt(-1);
 
-            log.info("2GIS page {} parsed: acceptedOnPage={}, aggregated={}", page, addedOnPage, aggregated.size());
+                log.info(
+                        "2GIS point {}/{} page {} fetched: pageItems={}, reportedTotal={}",
+                        pointIndex,
+                        searchPoints.size(),
+                        page,
+                        pageItems,
+                        total
+                );
 
-            if (pageItems < pageSize) {
-                break;
-            }
+                if (pageItems == 0) {
+                    break;
+                }
 
-            if (total > 0 && aggregated.size() >= total) {
-                break;
+                List<TwoGisRawPoiDto> parsedPage = parseResponse(response, requestedType);
+                int addedOnPage = 0;
+
+                for (TwoGisRawPoiDto dto : parsedPage) {
+                    String dedupeKey = buildDedupeKey(dto);
+
+                    if (dedupeKey != null && !seenIds.add(dedupeKey)) {
+                        continue;
+                    }
+
+                    aggregated.add(dto);
+                    addedOnPage++;
+                }
+
+                log.info(
+                        "2GIS point {}/{} page {} parsed: acceptedOnPage={}, aggregated={}",
+                        pointIndex,
+                        searchPoints.size(),
+                        page,
+                        addedOnPage,
+                        aggregated.size()
+                );
+
+                if (addedOnPage == 0) {
+                    duplicateOnlyPagesInRow++;
+                } else {
+                    duplicateOnlyPagesInRow = 0;
+                }
+
+                if (duplicateOnlyPagesInRow >= DUPLICATE_ONLY_PAGES_BREAK_THRESHOLD) {
+                    log.info(
+                            "Breaking pagination for point {}/{} because {} duplicate-only pages were received in a row",
+                            pointIndex,
+                            searchPoints.size(),
+                            duplicateOnlyPagesInRow
+                    );
+                    break;
+                }
+
+                if (pageItems < pageSize) {
+                    break;
+                }
             }
         }
 
-        log.info("2GIS search completed: aggregatedResults={}, query='{}', cityId={}",
-                aggregated.size(), query, cityId);
+        log.info(
+                "2GIS grid search completed: aggregatedResults={}, query='{}', cityId={}",
+                aggregated.size(),
+                query,
+                cityId
+        );
 
         return aggregated;
     }
@@ -109,16 +205,18 @@ public class TwoGisClient {
     private JsonNode fetchPage(
             WebClient webClient,
             String query,
-            String twoGisCityId,
+            double lng,
+            double lat,
+            int radiusMeters,
             int page,
             int pageSize
     ) {
-
         JsonNode response = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/3.0/items")
                         .queryParam("q", query)
-                        .queryParam("city_id", twoGisCityId)
+                        .queryParam("location", lng + "," + lat)
+                        .queryParam("radius", radiusMeters)
                         .queryParam("page", page)
                         .queryParam("page_size", pageSize)
                         .queryParam("fields",
@@ -148,63 +246,89 @@ public class TwoGisClient {
                 .bodyToMono(JsonNode.class)
                 .block();
 
-        log.info("2GIS raw response page {}: {}", page, response != null ? response.toPrettyString() : null);
         return response;
     }
 
-    private String resolveTwoGisCityId(WebClient webClient, String cityName) {
-        JsonNode response = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/3.0/items/geocode")
-                        .queryParam("q", cityName)
-                        .queryParam("type", "adm_div.city")
-                        .queryParam("key", properties.getApiKey())
-                        .build())
-                .retrieve()
-                .onStatus(HttpStatusCode::isError, clientResponse ->
-                        clientResponse.bodyToMono(String.class)
-                                .defaultIfEmpty("Unknown 2GIS geocode error")
-                                .flatMap(body -> Mono.error(new RuntimeException(
-                                        "2GIS geocode failed: " + clientResponse.statusCode() + ", body=" + body
-                                ))))
-                .bodyToMono(JsonNode.class)
-                .block();
-
-        log.info("2GIS geocode city response for '{}': {}", cityName, response != null ? response.toPrettyString() : null);
-
-        JsonNode items = response.path("result").path("items");
-        if (!items.isArray() || items.isEmpty()) {
-            throw new IllegalStateException("2GIS city geocode returned no results for city: " + cityName);
+    private boolean hasLogicalApiError(JsonNode response) {
+        if (response == null) {
+            return true;
         }
 
-        for (JsonNode item : items) {
-            String subtype = item.path("subtype").asText("");
-            String id = item.path("id").asText(null);
-
-            if ("city".equalsIgnoreCase(subtype) && StringUtils.isNotBlank(id)) {
-                return id;
-            }
-        }
-
-        String fallbackId = items.get(0).path("id").asText(null);
-        if (StringUtils.isBlank(fallbackId)) {
-            throw new IllegalStateException("2GIS city geocode returned items without id for city: " + cityName);
-        }
-
-        return fallbackId;
+        int code = response.path("meta").path("code").asInt(200);
+        return code != 200;
     }
 
     private CityExternalDto resolveCity(Long cityId) {
-        if (cityId == null) {
-            return null;
-        }
-
         try {
             return cityClient.getCityById(cityId);
         } catch (Exception ex) {
             log.warn("Failed to resolve city metadata for cityId={}: {}", cityId, ex.getMessage());
             return null;
         }
+    }
+
+    private List<SearchPoint> buildGridPoints(
+            BigDecimal centerLat,
+            BigDecimal centerLng,
+            int gridRadiusKm,
+            int cellStepKm
+    ) {
+        List<SearchPoint> points = new ArrayList<>();
+
+        double centerLatVal = centerLat.doubleValue();
+        double centerLngVal = centerLng.doubleValue();
+
+        double latStep = kmToLatitudeDegrees(cellStepKm);
+        double lngStep = kmToLongitudeDegrees(cellStepKm, centerLatVal);
+
+        int steps = Math.max(1, gridRadiusKm / Math.max(cellStepKm, 1));
+
+        for (int latIndex = -steps; latIndex <= steps; latIndex++) {
+            for (int lngIndex = -steps; lngIndex <= steps; lngIndex++) {
+                double lat = centerLatVal + latIndex * latStep;
+                double lng = centerLngVal + lngIndex * lngStep;
+
+                double distanceKm = approximateDistanceKm(
+                        centerLatVal,
+                        centerLngVal,
+                        lat,
+                        lng
+                );
+
+                points.add(new SearchPoint(
+                        roundCoord(lat),
+                        roundCoord(lng),
+                        roundCoord(distanceKm)
+                ));
+            }
+        }
+
+        points.sort(Comparator.comparingDouble(SearchPoint::distanceKm));
+        return points;
+    }
+
+    private double kmToLatitudeDegrees(double km) {
+        return km / 111.0;
+    }
+
+    private double kmToLongitudeDegrees(double km, double lat) {
+        double cos = Math.cos(Math.toRadians(lat));
+        if (Math.abs(cos) < 0.0001) {
+            cos = 0.0001;
+        }
+        return km / (111.0 * cos);
+    }
+
+    private double approximateDistanceKm(double lat1, double lng1, double lat2, double lng2) {
+        double latDiffKm = (lat2 - lat1) * 111.0;
+        double lngDiffKm = (lng2 - lng1) * 111.0 * Math.cos(Math.toRadians((lat1 + lat2) / 2.0));
+        return Math.sqrt(latDiffKm * latDiffKm + lngDiffKm * lngDiffKm);
+    }
+
+    private double roundCoord(double value) {
+        return BigDecimal.valueOf(value)
+                .setScale(6, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     private List<TwoGisRawPoiDto> parseResponse(JsonNode response, String requestedType) {
@@ -231,20 +355,12 @@ public class TwoGisClient {
                     ? point.path("lon").asDouble()
                     : null;
 
-            if (StringUtils.isBlank(name)) {
-                log.warn("Skipping 2GIS item without name: {}", item);
-                continue;
-            }
-
-            if (lat == null || lon == null) {
-                log.warn("Skipping 2GIS item without coordinates: name={}, item={}", name, item);
+            if (StringUtils.isBlank(name) || lat == null || lon == null) {
                 continue;
             }
 
             String resolvedType = resolvePoiTypeCode(item);
             if (!matchesRequestedType(requestedType, resolvedType)) {
-                log.debug("Skipping 2GIS item due to requestedType mismatch. name={}, requestedType={}, resolvedType={}",
-                        name, requestedType, resolvedType);
                 continue;
             }
 
@@ -281,10 +397,23 @@ public class TwoGisClient {
         return result;
     }
 
+    private String buildDedupeKey(TwoGisRawPoiDto dto) {
+        if (StringUtils.isNotBlank(dto.getExternalId())) {
+            return "ext:" + dto.getExternalId().trim();
+        }
+        if (StringUtils.isNotBlank(dto.getSourceUrl())) {
+            return "src:" + dto.getSourceUrl().trim();
+        }
+        if (StringUtils.isNotBlank(dto.getName()) && StringUtils.isNotBlank(dto.getAddress())) {
+            return "nameaddr:" + dto.getName().trim() + "|" + dto.getAddress().trim();
+        }
+        return null;
+    }
+
     private List<TwoGisRawHourDto> extractHours(JsonNode item) {
         List<TwoGisRawHourDto> result = new ArrayList<>();
-
         JsonNode schedule = item.path("schedule");
+
         if (schedule.isMissingNode() || schedule.isNull() || !schedule.isObject()) {
             return result;
         }
@@ -302,7 +431,6 @@ public class TwoGisClient {
         Iterator<Map.Entry<String, JsonNode>> fields = schedule.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
-
             String dayCode = entry.getKey();
             JsonNode dayNode = entry.getValue();
 
@@ -329,7 +457,6 @@ public class TwoGisClient {
                 dto.setOpenTime(normalizeTime(from));
                 dto.setCloseTime(normalizeTime(to));
                 dto.setAroundTheClock(false);
-
                 result.add(dto);
             }
         }
@@ -460,7 +587,6 @@ public class TwoGisClient {
 
     private List<String> extractRubricNames(JsonNode item) {
         List<String> result = new ArrayList<>();
-
         JsonNode rubrics = item.path("rubrics");
         if (!rubrics.isArray()) {
             return result;
@@ -478,13 +604,8 @@ public class TwoGisClient {
 
     private String buildStaticMapUrlFromItem(JsonNode item) {
         JsonNode point = item.path("point");
-
-        Double lat = point.has("lat") && !point.path("lat").isNull()
-                ? point.path("lat").asDouble()
-                : null;
-        Double lon = point.has("lon") && !point.path("lon").isNull()
-                ? point.path("lon").asDouble()
-                : null;
+        Double lat = point.has("lat") && !point.path("lat").isNull() ? point.path("lat").asDouble() : null;
+        Double lon = point.has("lon") && !point.path("lon").isNull() ? point.path("lon").asDouble() : null;
 
         if (lat == null || lon == null) {
             return null;
@@ -598,5 +719,19 @@ public class TwoGisClient {
             }
         }
         return false;
+    }
+
+    private int safePageSize(Integer value) {
+        if (value == null || value <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(value, MAX_2GIS_PAGE_SIZE);
+    }
+
+    private int safePositive(Integer value, int fallback) {
+        return value != null && value > 0 ? value : fallback;
+    }
+
+    private record SearchPoint(double lat, double lng, double distanceKm) {
     }
 }
