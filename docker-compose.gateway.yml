@@ -1,0 +1,16 @@
+version: "3.9"
+
+networks:
+  travel-net:
+    external: true
+
+services:
+  gateway:
+    image: nginx:stable-alpine
+    container_name: travel-gateway
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - travel-net
