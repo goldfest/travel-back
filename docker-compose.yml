@@ -131,7 +131,7 @@ services:
 
   ml-poi-worker-service:
     build:
-      context: ../travel-ml-service/travel-ml/ml-poi-worker-service
+      context: C:\Users\vanon\Desktop\travel-ml-service\travel-ml/ml-poi-worker-service
       dockerfile: Dockerfile
     container_name: ml-poi-worker-service
     ports:
