@@ -48,6 +48,8 @@ public class PoiCommandServiceImpl implements PoiCommandService {
             throw new ValidationException("Slug already exists: " + request.getSlug());
         }
 
+        validateCreateRequest(request);
+
         Poi poi = new Poi();
         poi.setSlug(request.getSlug());
         poi.setCreatedBy(userId);
@@ -190,7 +192,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         PoiType poiType = poiTypeRepository.findById(request.getPoiTypeId())
                 .orElseThrow(() -> new PoiTypeNotFoundException(request.getPoiTypeId()));
 
-        // slug намеренно НЕ меняем при update from import
+        validateCreateRequest(request);
         applySimpleFields(poi, request, poiType);
 
         replaceFeatures(poi, request.getFeatures());
@@ -267,11 +269,11 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     }
 
     private void replaceMedia(Poi poi, List<PoiCreateRequest.MediaRequest> mediaRequests, Long userId) {
-        poi.getMedia().clear();
-
         if (mediaRequests == null || mediaRequests.isEmpty()) {
             return;
         }
+
+        poi.getMedia().clear();
 
         for (PoiCreateRequest.MediaRequest mediaRequest : mediaRequests) {
             if (mediaRequest == null || StringUtils.isBlank(mediaRequest.getUrl())) {
@@ -342,6 +344,51 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         }
 
         return false;
+    }
+
+    private void validateCreateRequest(PoiCreateRequest request) {
+        if (request == null) {
+            throw new ValidationException("POI request must not be null");
+        }
+
+        validateDescription(request.getDescription());
+        validateUrl(request.getSiteUrl(), "Site URL");
+
+        if (request.getMedia() != null) {
+            for (PoiCreateRequest.MediaRequest media : request.getMedia()) {
+                if (media == null) {
+                    continue;
+                }
+                validateUrl(media.getUrl(), "Media URL");
+            }
+        }
+    }
+
+    private void validateDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return;
+        }
+
+        String normalized = description.trim();
+
+        if (normalized.length() < 20) {
+            throw new ValidationException("Description is too short");
+        }
+
+        if ("Описание объекта временно отсутствует.".equalsIgnoreCase(normalized)) {
+            throw new ValidationException("Description is placeholder-only");
+        }
+    }
+
+    private void validateUrl(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+
+        String normalized = value.trim().toLowerCase();
+        if (!(normalized.startsWith("http://") || normalized.startsWith("https://"))) {
+            throw new ValidationException(fieldName + " must start with http:// or https://");
+        }
     }
 
 }

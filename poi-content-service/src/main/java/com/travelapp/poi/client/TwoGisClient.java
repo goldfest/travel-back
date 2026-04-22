@@ -36,12 +36,15 @@ public class TwoGisClient {
     private static final int DEFAULT_MAX_PAGES = 20;
     private static final int MAX_2GIS_PAGE_SIZE = 10;
     private static final int DUPLICATE_ONLY_PAGES_BREAK_THRESHOLD = 2;
+    private static final int DUPLICATE_ONLY_POINTS_BREAK_THRESHOLD = 2;
 
     private final TwoGisProperties properties;
     private final CityClient cityClient;
 
     public List<TwoGisRawPoiDto> search(String query, Long cityId) {
         log.info("Searching 2GIS API for query='{}', cityId={}", query, cityId);
+
+        int duplicateOnlyPointsInRow = 0;
 
         if (StringUtils.isBlank(query)) {
             throw new IllegalArgumentException("2GIS query must not be blank");
@@ -107,6 +110,7 @@ public class TwoGisClient {
             );
 
             int duplicateOnlyPagesInRow = 0;
+            int aggregatedBeforePoint = aggregated.size();
 
             for (int page = 1; page <= maxPages; page++) {
                 JsonNode response = fetchPage(
@@ -189,6 +193,22 @@ public class TwoGisClient {
                 if (pageItems < pageSize) {
                     break;
                 }
+            }
+
+            int addedOnPoint = aggregated.size() - aggregatedBeforePoint;
+
+            if (addedOnPoint == 0) {
+                duplicateOnlyPointsInRow++;
+            } else {
+                duplicateOnlyPointsInRow = 0;
+            }
+
+            if (duplicateOnlyPointsInRow >= DUPLICATE_ONLY_POINTS_BREAK_THRESHOLD) {
+                log.info(
+                        "Breaking grid search because {} points in a row produced no new POIs",
+                        duplicateOnlyPointsInRow
+                );
+                break;
             }
         }
 
@@ -493,13 +513,6 @@ public class TwoGisClient {
                     result.add(dto);
                 }
             }
-        }
-
-        if (result.isEmpty() && hasPhotos && staticMapUrl != null) {
-            TwoGisRawMediaDto dto = new TwoGisRawMediaDto();
-            dto.setUrl(staticMapUrl);
-            dto.setMediaType("IMAGE");
-            result.add(dto);
         }
 
         return result;
