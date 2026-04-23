@@ -44,6 +44,9 @@ public class CityResponseDto {
     @Schema(description = "Код страны по ISO 3166-1 alpha-2", example = "RU")
     private String countryCode;
 
+    @Schema(description = "Таймзона города в формате IANA", example = "Europe/Moscow")
+    private String timeZone;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "Дата создания", example = "2024-01-01 12:00:00")
     private LocalDateTime createdAt;

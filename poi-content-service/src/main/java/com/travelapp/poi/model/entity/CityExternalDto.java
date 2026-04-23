@@ -13,4 +13,5 @@ public class CityExternalDto {
     private String slug;
     private BigDecimal centerLat;
     private BigDecimal centerLng;
+    private String timeZone;
 }

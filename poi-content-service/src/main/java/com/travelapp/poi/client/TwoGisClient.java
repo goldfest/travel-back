@@ -16,13 +16,8 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -251,9 +246,9 @@ public class TwoGisClient {
                                         "items.rubrics," +
                                         "items.description," +
                                         "items.flags," +
-                                        "items.photos," +
                                         "items.subtitle," +
-                                        "items.uri")
+                                        "items.uri," +
+                                        "items.attribute_groups")
                         .queryParam("key", properties.getApiKey())
                         .build())
                 .retrieve()
@@ -388,8 +383,9 @@ public class TwoGisClient {
             String sourceUrl = normalizeSourceUrl(item, externalId);
             List<String> rubricNames = extractRubricNames(item);
             String purposeName = normalizeText(item.path("purpose_name").asText(null));
-            boolean hasPhotos = hasPhotosFlag(item);
-            String staticMapUrl = buildStaticMapUrlFromItem(item);
+            Map<String, String> features = extractFeatures(item);
+            List<TwoGisRawHourDto> hours = extractHours(item);
+            String description = buildDescription(item, purposeName, rubricNames, address, features);
 
             TwoGisRawPoiDto dto = new TwoGisRawPoiDto();
             dto.setExternalId(externalId);
@@ -397,19 +393,16 @@ public class TwoGisClient {
             dto.setAddress(address);
             dto.setLatitude(lat);
             dto.setLongitude(lon);
-            dto.setDescription(buildDescription(item, purposeName, rubricNames, address));
+            dto.setDescription(description);
             dto.setPhone(extractContactPhone(item));
             dto.setSiteUrl(extractSiteUrl(item));
             dto.setPriceLevel(0);
             dto.setPoiTypeCode(resolvedType);
             dto.setSourceUrl(sourceUrl);
-            dto.setFeatures(Map.of());
-            dto.setHours(extractHours(item));
-            dto.setMedia(extractMedia(item, staticMapUrl, hasPhotos));
+            dto.setFeatures(features);
+            dto.setHours(hours);
             dto.setPurposeName(purposeName);
             dto.setRubricNames(rubricNames);
-            dto.setHasPhotos(hasPhotos);
-            dto.setStaticMapUrl(staticMapUrl);
 
             result.add(dto);
         }
@@ -495,67 +488,210 @@ public class TwoGisClient {
         return normalized;
     }
 
-    private List<TwoGisRawMediaDto> extractMedia(JsonNode item, String staticMapUrl, boolean hasPhotos) {
-        List<TwoGisRawMediaDto> result = new ArrayList<>();
+    private String buildDescription(
+            JsonNode item,
+            String purposeName,
+            List<String> rubricNames,
+            String address,
+            Map<String, String> features
+    ) {
+        String cleanDescription = cleanHtmlToText(item.path("description").asText(null));
+        String subtitle = normalizeText(item.path("subtitle").asText(null));
 
-        JsonNode photos = item.path("photos");
-        if (photos.isArray()) {
-            for (JsonNode photo : photos) {
-                String photoUrl = firstNonBlank(
-                        normalizeText(photo.path("preview_url").asText(null)),
-                        normalizeText(photo.path("url").asText(null)),
-                        normalizeText(photo.path("source").asText(null))
-                );
-                if (photoUrl != null) {
-                    TwoGisRawMediaDto dto = new TwoGisRawMediaDto();
-                    dto.setUrl(photoUrl);
-                    dto.setMediaType("IMAGE");
-                    result.add(dto);
+        if (StringUtils.isNotBlank(cleanDescription) && cleanDescription.length() >= 50) {
+            return cleanDescription;
+        }
+
+        List<String> sentences = new ArrayList<>();
+
+        String baseType = firstNonBlank(
+                normalizePhrase(purposeName),
+                normalizePhrase(subtitle),
+                buildTypePhrase(rubricNames)
+        );
+
+        if (StringUtils.isNotBlank(baseType)) {
+            sentences.add(baseType);
+        }
+
+        List<String> highlights = extractDescriptionHighlights(features);
+        if (!highlights.isEmpty()) {
+            String secondSentence = String.join(", ", highlights);
+            if (!secondSentence.endsWith(".")) {
+                secondSentence += ".";
+            }
+            sentences.add(capitalizeSentence(secondSentence));
+        }
+
+        if (sentences.isEmpty()) {
+            if (StringUtils.isNotBlank(address)) {
+                return "Объект находится по адресу: " + address + ".";
+            }
+            return "Информация об объекте ограничена.";
+        }
+
+        return String.join(" ", sentences);
+    }
+
+    private List<String> extractDescriptionHighlights(Map<String, String> features) {
+        List<String> result = new ArrayList<>();
+
+        for (Map.Entry<String, String> entry : features.entrySet()) {
+            String key = entry.getKey().toLowerCase();
+            String value = StringUtils.defaultString(entry.getValue());
+
+            if ((key.contains("wi-fi") || key.contains("wifi")) && "true".equalsIgnoreCase(value)) {
+                result.add("Есть Wi-Fi");
+            } else if (key.contains("доставка") && "true".equalsIgnoreCase(value)) {
+                result.add("Есть доставка");
+            } else if (key.contains("навынос") && "true".equalsIgnoreCase(value)) {
+                result.add("Можно заказать навынос");
+            } else if (key.contains("чек") && value.matches(".*\\d+.*")) {
+                result.add("Средний чек — " + value + " ₽");
+            } else if (key.contains("мест") && value.matches(".*\\d+.*")) {
+                result.add("До " + value + " мест");
+            }
+        }
+
+        return result.stream().distinct().limit(4).toList();
+    }
+
+    private String normalizePhrase(String value) {
+        String normalized = normalizeText(value);
+        if (StringUtils.isBlank(normalized)) {
+            return null;
+        }
+
+        normalized = normalized.replaceAll("\\.$", "");
+        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1) + ".";
+    }
+
+    private String buildTypePhrase(List<String> rubricNames) {
+        if (rubricNames == null || rubricNames.isEmpty()) {
+            return null;
+        }
+
+        List<String> filtered = rubricNames.stream()
+                .filter(StringUtils::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .limit(2)
+                .toList();
+
+        if (filtered.isEmpty()) {
+            return null;
+        }
+
+        return String.join(", ", filtered) + ".";
+    }
+
+    private void putRawFeature(Map<String, String> target, String groupName, String attributeName, String attributeText) {
+        String normalizedGroup = normalizeText(groupName);
+        String normalizedName = normalizeText(attributeName);
+        String normalizedText = normalizeText(attributeText);
+
+        if (StringUtils.isBlank(normalizedGroup)
+                && StringUtils.isBlank(normalizedName)
+                && StringUtils.isBlank(normalizedText)) {
+            return;
+        }
+
+        String key;
+        String value;
+
+        if (StringUtils.isNotBlank(normalizedGroup) && StringUtils.isNotBlank(normalizedName)) {
+            key = normalizedGroup + "." + normalizedName;
+            value = StringUtils.isNotBlank(normalizedText) ? normalizedText : "true";
+        } else if (StringUtils.isNotBlank(normalizedName)) {
+            key = normalizedName;
+            value = StringUtils.isNotBlank(normalizedText) ? normalizedText : "true";
+        } else if (StringUtils.isNotBlank(normalizedGroup) && StringUtils.isNotBlank(normalizedText)) {
+            key = normalizedGroup + "." + normalizedText;
+            value = "true";
+        } else if (StringUtils.isNotBlank(normalizedText)) {
+            key = normalizedText;
+            value = "true";
+        } else {
+            key = normalizedGroup;
+            value = "true";
+        }
+
+        target.put(key, value);
+    }
+
+    private Map<String, String> extractFeatures(JsonNode item) {
+        Map<String, String> result = new LinkedHashMap<>();
+
+        JsonNode attributeGroups = item.path("attribute_groups");
+        if (!attributeGroups.isArray()) {
+            return result;
+        }
+
+        for (JsonNode group : attributeGroups) {
+            String groupName = normalizeText(group.path("name").asText(null));
+            JsonNode attributes = group.path("attributes");
+
+            if (!attributes.isArray()) {
+                continue;
+            }
+
+            for (JsonNode attribute : attributes) {
+                String attributeName = normalizeText(attribute.path("name").asText(null));
+                String attributeText = extractAttributeText(attribute);
+
+                if (StringUtils.isBlank(groupName)
+                        && StringUtils.isBlank(attributeName)
+                        && StringUtils.isBlank(attributeText)) {
+                    continue;
                 }
+
+                putRawFeature(result, groupName, attributeName, attributeText);
             }
         }
 
         return result;
     }
 
-    private boolean hasPhotosFlag(JsonNode item) {
-        return item.path("flags").path("photos").asBoolean(false);
+    private String extractAttributeText(JsonNode attribute) {
+        String directValue = firstNonBlank(
+                normalizeText(attribute.path("text").asText(null)),
+                normalizeText(attribute.path("value").asText(null))
+        );
+
+        if (StringUtils.isNotBlank(directValue)) {
+            return directValue;
+        }
+
+        JsonNode values = attribute.path("values");
+        if (values.isArray()) {
+            List<String> parts = new ArrayList<>();
+
+            for (JsonNode valueNode : values) {
+                String value = firstNonBlank(
+                        normalizeText(valueNode.path("name").asText(null)),
+                        normalizeText(valueNode.path("text").asText(null)),
+                        valueNode.isValueNode() ? normalizeText(valueNode.asText(null)) : null
+                );
+
+                if (StringUtils.isNotBlank(value)) {
+                    parts.add(value);
+                }
+            }
+
+            if (!parts.isEmpty()) {
+                return String.join(", ", parts);
+            }
+        }
+
+        return null;
     }
 
-    private String buildDescription(JsonNode item, String purposeName, List<String> rubricNames, String address) {
-        List<String> parts = new ArrayList<>();
-
-        String description = cleanHtmlToText(item.path("description").asText(null));
-        String subtitle = normalizeText(item.path("subtitle").asText(null));
-        String siteUrl = extractSiteUrl(item);
-
-        if (purposeName != null) {
-            parts.add(purposeName);
-        } else if (subtitle != null) {
-            parts.add(subtitle);
+    private String capitalizeSentence(String value) {
+        String normalized = normalizeText(value);
+        if (StringUtils.isBlank(normalized)) {
+            return null;
         }
-
-        if (!rubricNames.isEmpty()) {
-            parts.add("Категории: " + String.join(", ", rubricNames));
-        }
-
-        if (description != null) {
-            parts.add(description);
-        }
-
-        if (address != null) {
-            parts.add("Адрес: " + address);
-        }
-
-        if (siteUrl != null) {
-            parts.add("Сайт: " + siteUrl);
-        }
-
-        if (parts.isEmpty()) {
-            return "Описание объекта временно отсутствует.";
-        }
-
-        return String.join(". ", parts) + ".";
+        return Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
     }
 
     private String cleanHtmlToText(String html) {
@@ -613,22 +749,6 @@ public class TwoGisClient {
         }
 
         return result;
-    }
-
-    private String buildStaticMapUrlFromItem(JsonNode item) {
-        JsonNode point = item.path("point");
-        Double lat = point.has("lat") && !point.path("lat").isNull() ? point.path("lat").asDouble() : null;
-        Double lon = point.has("lon") && !point.path("lon").isNull() ? point.path("lon").asDouble() : null;
-
-        if (lat == null || lon == null) {
-            return null;
-        }
-
-        return "https://static.maps.2gis.com/2.0"
-                + "?s=800x450"
-                + "&z=16"
-                + "&pt=" + lon + "," + lat + "~k:p"
-                + "&key=" + properties.getApiKey();
     }
 
     private String extractContactPhone(JsonNode item) {

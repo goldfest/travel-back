@@ -1,9 +1,11 @@
 package com.travelapp.poi.service.query;
 
+import com.travelapp.poi.client.CityClient;
 import com.travelapp.poi.exception.PoiNotFoundException;
 import com.travelapp.poi.mapper.PoiMapper;
 import com.travelapp.poi.model.dto.request.PoiSearchRequest;
 import com.travelapp.poi.model.dto.response.PoiResponse;
+import com.travelapp.poi.model.entity.CityExternalDto;
 import com.travelapp.poi.model.entity.Poi;
 import com.travelapp.poi.model.entity.PoiHours;
 import com.travelapp.poi.repository.PoiRepository;
@@ -20,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -46,6 +50,8 @@ public class PoiQueryServiceImpl implements PoiQueryService {
     private final PoiRepository poiRepository;
     private final PoiMapper poiMapper;
     private final PoiTypeRepository poiTypeRepository;
+    private final CityClient cityClient;
+    private static final ZoneId FALLBACK_ZONE_ID = ZoneId.of("UTC");
 
     @Override
     @Cacheable(value = "poiCache", key = "#id")
@@ -224,17 +230,20 @@ public class PoiQueryServiceImpl implements PoiQueryService {
         response.setDistanceKm(distanceKm);
 
         if (poi.getHours() != null && !poi.getHours().isEmpty()) {
-            response.setIsOpenNow(isOpenNow(poi.getHours()));
+            ZoneId zoneId = resolveZoneId(poi.getCityId());
+            response.setIsOpenNow(isOpenNow(poi.getHours(), zoneId));
             response.setCurrentStatus(response.getIsOpenNow() ? "OPEN" : "CLOSED");
         }
 
         return response;
     }
 
-    private boolean isOpenNow(Set<PoiHours> hours) {
-        int currentDay = java.time.LocalDate.now().getDayOfWeek().getValue() % 7;
+    private boolean isOpenNow(Set<PoiHours> hours, ZoneId zoneId) {
+        ZonedDateTime now = ZonedDateTime.now(zoneId);
+
+        int currentDay = now.getDayOfWeek().getValue() % 7;
         int previousDay = (currentDay + 6) % 7;
-        LocalTime currentTime = LocalTime.now();
+        LocalTime currentTime = now.toLocalTime();
 
         for (PoiHours hour : hours) {
             if (Boolean.TRUE.equals(hour.getAroundTheClock()) && hour.getDayOfWeek().shortValue() == currentDay) {
@@ -265,6 +274,7 @@ public class PoiQueryServiceImpl implements PoiQueryService {
                 return true;
             }
         }
+
         return false;
     }
 
@@ -373,5 +383,22 @@ public class PoiQueryServiceImpl implements PoiQueryService {
             }
         }
         return false;
+    }
+
+    private ZoneId resolveZoneId(Long cityId) {
+        if (cityId == null) {
+            return FALLBACK_ZONE_ID;
+        }
+
+        try {
+            CityExternalDto city = cityClient.getCityById(cityId);
+            if (city != null && StringUtils.isNotBlank(city.getTimeZone())) {
+                return ZoneId.of(city.getTimeZone().trim());
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to resolve city timezone for cityId={}: {}", cityId, ex.getMessage());
+        }
+
+        return FALLBACK_ZONE_ID;
     }
 }

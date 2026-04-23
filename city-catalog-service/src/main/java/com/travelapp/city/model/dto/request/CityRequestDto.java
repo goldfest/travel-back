@@ -54,4 +54,8 @@ public class CityRequestDto {
     @Pattern(regexp = "^[A-Za-z]{2}$", message = "Код страны должен содержать только буквы")
     @Schema(description = "Код страны по ISO 3166-1 alpha-2", example = "RU")
     private String countryCode;
+
+    @Size(max = 64, message = "Таймзона не должна превышать 64 символа")
+    @Schema(description = "Таймзона города в формате IANA", example = "Europe/Moscow")
+    private String timeZone;
 }

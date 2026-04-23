@@ -39,6 +39,7 @@ public class CityServiceImpl implements CityService {
         log.debug("Creating new city: {}", requestDto.getName());
 
         normalize(requestDto);
+        validateTimeZone(requestDto.getTimeZone());
 
         if (cityRepository.existsBySlug(requestDto.getSlug())) {
             throw new ConflictException("Город с таким slug уже существует: " + requestDto.getSlug());
@@ -63,6 +64,7 @@ public class CityServiceImpl implements CityService {
         log.debug("Updating city with ID: {}", id);
 
         normalize(requestDto);
+        validateTimeZone(requestDto.getTimeZone());
 
         City city = cityRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Город с ID " + id + " не найден"));
@@ -203,6 +205,22 @@ public class CityServiceImpl implements CityService {
 
         if (dto.getCountry() != null) {
             dto.setCountry(dto.getCountry().trim());
+        }
+
+        if (dto.getTimeZone() != null) {
+            dto.setTimeZone(dto.getTimeZone().trim());
+        }
+    }
+
+    private void validateTimeZone(String timeZone) {
+        if (timeZone == null || timeZone.isBlank()) {
+            return;
+        }
+
+        try {
+            java.time.ZoneId.of(timeZone);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Некорректная таймзона: " + timeZone);
         }
     }
 }

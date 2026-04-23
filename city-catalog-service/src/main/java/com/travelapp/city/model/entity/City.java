@@ -46,6 +46,9 @@ public class City {
     @Column(name = "country_code", length = 2)
     private String countryCode;
 
+    @Column(name = "time_zone", length = 64)
+    private String timeZone;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

@@ -27,4 +27,7 @@ public class CityLookupDto {
 
     @Schema(example = "RU")
     private String countryCode;
+
+    @Schema(example = "Europe/Moscow")
+    private String timeZone;
 }
