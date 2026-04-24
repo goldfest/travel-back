@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -46,6 +47,12 @@ public class CityResponseDto {
 
     @Schema(description = "Таймзона города в формате IANA", example = "Europe/Moscow")
     private String timeZone;
+
+    @Schema(description = "Главное фото города", example = "https://images.unsplash.com/photo-1513326738677-b964603b136d")
+    private String imageUrl;
+
+    @Schema(description = "Галерея фото города")
+    private List<String> imageUrls;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     @Schema(description = "Дата создания", example = "2024-01-01 12:00:00")

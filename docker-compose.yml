@@ -73,8 +73,8 @@ services:
         condition: service_healthy
       city-service:
         condition: service_started
-      ml-poi-worker-service:
-        condition: service_started
+#      ml-poi-worker-service:
+#        condition: service_started
     ports:
       - "8081:8081"
     environment:
@@ -88,7 +88,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:8084/api
       CITY_SERVICE_URL: http://city-service:8082/api/cities
       REVIEW_SERVICE_URL: http://review-service:8083/api/reviews
-      ML_SERVICE_URL: http://ml-poi-worker-service:8000
+#      ML_SERVICE_URL: http://ml-poi-worker-service:8000
       TWO_GIS_API_KEY: 2aeb8c47-f91a-4a68-8527-b511f521e1cb
     restart: unless-stopped
     networks: [travel-net]
@@ -129,12 +129,12 @@ services:
     restart: unless-stopped
     networks: [travel-net]
 
-  ml-poi-worker-service:
-    build:
-      context: ../travel-ml-service/travel-ml/ml-poi-worker-service
-      dockerfile: Dockerfile
-    container_name: ml-poi-worker-service
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
-    networks: [ travel-net ]
+#  ml-poi-worker-service:
+#    build:
+#      context: ../travel-ml-service/travel-ml/ml-poi-worker-service
+#      dockerfile: Dockerfile
+#    container_name: ml-poi-worker-service
+#    ports:
+#      - "8000:8000"
+#    restart: unless-stopped
+#    networks: [ travel-net ]

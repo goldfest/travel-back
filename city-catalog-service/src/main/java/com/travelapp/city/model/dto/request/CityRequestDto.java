@@ -9,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -58,4 +59,11 @@ public class CityRequestDto {
     @Size(max = 64, message = "Таймзона не должна превышать 64 символа")
     @Schema(description = "Таймзона города в формате IANA", example = "Europe/Moscow")
     private String timeZone;
+
+    @Size(max = 500, message = "URL главного фото не должен превышать 500 символов")
+    @Schema(description = "Главное фото города", example = "https://images.unsplash.com/photo-1513326738677-b964603b136d")
+    private String imageUrl;
+
+    @Schema(description = "Галерея фото города")
+    private List<@Size(max = 500, message = "URL фото не должен превышать 500 символов") String> imageUrls;
 }

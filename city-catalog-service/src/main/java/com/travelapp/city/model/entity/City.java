@@ -8,6 +8,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "cities")
@@ -48,6 +50,15 @@ public class City {
 
     @Column(name = "time_zone", length = 64)
     private String timeZone;
+
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "city_image", joinColumns = @JoinColumn(name = "city_id"))
+    @Column(name = "url", nullable = false, length = 500)
+    @OrderColumn(name = "sort_order")
+    private List<String> imageUrls = new ArrayList<>();
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)
