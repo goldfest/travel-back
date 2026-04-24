@@ -1,0 +1,4 @@
+ALTER TABLE poi_feature
+    ALTER COLUMN key TYPE VARCHAR(255);
+ALTER TABLE poi_feature
+    ALTER COLUMN value TYPE VARCHAR(500);

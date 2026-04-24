@@ -5,6 +5,7 @@ import com.travelapp.poi.exception.ValidationException;
 import com.travelapp.poi.model.dto.request.PoiTypeRequest;
 import com.travelapp.poi.model.dto.response.PoiTypeResponse;
 import com.travelapp.poi.model.entity.PoiType;
+import com.travelapp.poi.repository.PoiRepository;
 import com.travelapp.poi.repository.PoiTypeRepository;
 import com.travelapp.poi.service.PoiTypeService;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 public class PoiTypeServiceImpl implements PoiTypeService {
 
     private final PoiTypeRepository poiTypeRepository;
+    private final PoiRepository poiRepository;
 
     @Override
     @Transactional
@@ -32,7 +34,6 @@ public class PoiTypeServiceImpl implements PoiTypeService {
     public PoiTypeResponse createPoiType(PoiTypeRequest request, Long userId) {
         log.info("Creating new POI type: {} by user {}", request.getCode(), userId);
 
-        // Check if code already exists
         if (poiTypeRepository.existsByCode(request.getCode())) {
             throw new ValidationException("POI Type code already exists: " + request.getCode());
         }
@@ -56,7 +57,6 @@ public class PoiTypeServiceImpl implements PoiTypeService {
         PoiType poiType = poiTypeRepository.findById(id)
                 .orElseThrow(() -> new PoiTypeNotFoundException(id));
 
-        // Check if new code already exists (if changed)
         if (!request.getCode().equals(poiType.getCode()) &&
                 poiTypeRepository.existsByCodeAndIdNot(request.getCode(), id)) {
             throw new ValidationException("POI Type code already exists: " + request.getCode());
@@ -80,8 +80,13 @@ public class PoiTypeServiceImpl implements PoiTypeService {
         PoiType poiType = poiTypeRepository.findById(id)
                 .orElseThrow(() -> new PoiTypeNotFoundException(id));
 
-        // Check if POI type is used by any POIs
-        // This check should be implemented
+        long usedCount = poiRepository.countByPoiTypeId(id);
+
+        if (usedCount > 0) {
+            throw new ValidationException(
+                    "Cannot delete POI type because it is used by " + usedCount + " POI objects"
+            );
+        }
 
         poiTypeRepository.delete(poiType);
     }

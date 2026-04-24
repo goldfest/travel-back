@@ -7,6 +7,7 @@ import org.mapstruct.Mapping;
 
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,7 +43,23 @@ public interface PoiMapper {
 
     default List<PoiResponse.PoiMediaResponse> mapMedia(Set<PoiMedia> media) {
         if (media == null) return null;
-        return media.stream().map(this::toMediaResponse).collect(Collectors.toList());
+        return media.stream()
+                .filter(item -> item.getModerationStatus() == PoiMedia.ModerationStatus.APPROVED)
+                .sorted(Comparator
+                        .comparingInt(this::mediaPriority)
+                        .thenComparing(item -> item.getDisplayOrder() == null ? Integer.MAX_VALUE : item.getDisplayOrder())
+                        .thenComparing(PoiMedia::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(this::toMediaResponse)
+                .collect(Collectors.toList());
+    }
+
+    default int mediaPriority(PoiMedia media) {
+        if (media == null || media.getSourceType() == null) return 99;
+        return switch (media.getSourceType()) {
+            case ADMIN_UPLOAD -> 0;
+            case SYSTEM_WIKIMEDIA -> 1;
+            case USER_UPLOAD -> 2;
+        };
     }
 
     default List<PoiResponse.PoiSourceResponse> mapSources(Set<PoiSource> sources) {
@@ -61,7 +78,20 @@ public interface PoiMapper {
         return r;
     }
 
-    PoiResponse.PoiMediaResponse toMediaResponse(PoiMedia media);
+    default PoiResponse.PoiMediaResponse toMediaResponse(PoiMedia media) {
+        if (media == null) return null;
+        PoiResponse.PoiMediaResponse response = new PoiResponse.PoiMediaResponse();
+        response.setId(media.getId());
+        response.setUrl(media.getUrl());
+        response.setMediaType(media.getMediaType() != null ? media.getMediaType().name() : null);
+        response.setSourceType(media.getSourceType() != null ? media.getSourceType().name() : null);
+        response.setModerationStatus(media.getModerationStatus() != null ? media.getModerationStatus().name() : null);
+        response.setDisplayOrder(media.getDisplayOrder());
+        response.setCreatedAt(media.getCreatedAt());
+        response.setUserId(media.getUserId());
+        return response;
+    }
+
     PoiResponse.PoiSourceResponse toSourceResponse(PoiSource source);
 
     default PoiResponse.PoiTypeResponse toTypeResponse(PoiType poiType) {

@@ -182,7 +182,7 @@ public class ImportServiceImpl implements ImportService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    private void executeImport(Long taskId, Long userId) {
+    public void executeImport(Long taskId, Long userId) {
         DataImportTask task = importTaskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Import task not found: " + taskId));
 
@@ -474,10 +474,6 @@ public class ImportServiceImpl implements ImportService {
 
     private int safeInt(Integer value) {
         return value != null ? value : 0;
-    }
-
-    private String normalizeSource(String sourceCode) {
-        return sourceCode == null ? "" : sourceCode.trim().toLowerCase();
     }
 
     private boolean containsBlockedWords(String text) {

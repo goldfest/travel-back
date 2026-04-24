@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class PoiResponse {
@@ -77,7 +78,9 @@ public class PoiResponse {
         private Long id;
         private String url;
         private String mediaType;
+        private String sourceType;
         private String moderationStatus;
+        private Integer displayOrder;
         private LocalDateTime createdAt;
         private Long userId;
     }

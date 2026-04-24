@@ -19,10 +19,10 @@ public class PoiFeature {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "key", nullable = false, length = 64)
+    @Column(name = "key", nullable = false, length = 255)
     private String key;
 
-    @Column(name = "value", length = 200)
+    @Column(name = "value", length = 500)
     private String value;
 
     @CreationTimestamp

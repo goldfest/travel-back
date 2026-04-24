@@ -22,6 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -69,7 +72,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "poiCache", allEntries = true),
             @CacheEvict(value = "pois", allEntries = true)
     })
     public PoiResponse updatePoi(Long id, PoiUpdateRequest request, Long userId) {
@@ -108,6 +111,16 @@ public class PoiCommandServiceImpl implements PoiCommandService {
             replaceFeatures(poi, request.getFeatures());
         }
 
+        if (request.getPoiTypeId() != null) {
+            PoiType poiType = poiTypeRepository.findById(request.getPoiTypeId())
+                    .orElseThrow(() -> new PoiTypeNotFoundException(request.getPoiTypeId()));
+            poi.setPoiType(poiType);
+        }
+
+        if (request.getHours() != null) {
+            replaceHours(poi, request.getHours());
+        }
+
         Poi updated = poiRepository.save(poi);
         return poiMapper.toResponse(updated);
     }
@@ -115,7 +128,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "poiCache", allEntries = true),
             @CacheEvict(value = "pois", allEntries = true)
     })
     public void deletePoi(Long id, Long userId) {
@@ -137,7 +150,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "poiCache", allEntries = true),
             @CacheEvict(value = "pois", allEntries = true)
     })
     public void verifyPoi(Long id, Long adminId) {
@@ -152,7 +165,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "poiCache", allEntries = true),
             @CacheEvict(value = "pois", allEntries = true)
     })
     public void unverifyPoi(Long id, Long adminId) {
@@ -180,7 +193,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
     @Override
     @Transactional
     @Caching(evict = {
-            @CacheEvict(value = "poiCache", key = "#id"),
+            @CacheEvict(value = "poiCache", allEntries = true),
             @CacheEvict(value = "pois", allEntries = true)
     })
     public PoiResponse updatePoiFromImport(Long id, PoiCreateRequest request, Long userId) {
@@ -197,11 +210,66 @@ public class PoiCommandServiceImpl implements PoiCommandService {
 
         replaceFeatures(poi, request.getFeatures());
         replaceHours(poi, request.getHours());
-        replaceMedia(poi, request.getMedia(), userId);
+
+        syncSystemMediaFromImport(poi, request.getMedia(), userId);
+
         appendSourcesIfMissing(poi, request.getSources());
 
         Poi updated = poiRepository.save(poi);
         return poiMapper.toResponse(updated);
+    }
+
+    private void syncSystemMediaFromImport(Poi poi,
+                                           List<PoiCreateRequest.MediaRequest> mediaRequests,
+                                           Long userId) {
+        if (mediaRequests == null || mediaRequests.isEmpty()) {
+            return;
+        }
+
+        Set<String> existingSystemUrls = poi.getMedia().stream()
+                .filter(media -> media.getSourceType() == PoiMedia.SourceType.SYSTEM_WIKIMEDIA)
+                .map(PoiMedia::getUrl)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+
+        for (PoiCreateRequest.MediaRequest mediaRequest : mediaRequests) {
+            if (mediaRequest == null || StringUtils.isBlank(mediaRequest.getUrl())) {
+                continue;
+            }
+
+            String url = mediaRequest.getUrl().trim();
+
+            if (!isWikimediaMediaUrl(url)) {
+                continue;
+            }
+
+            if (existingSystemUrls.contains(url)) {
+                continue;
+            }
+
+            PoiMedia media = new PoiMedia();
+            media.setPoi(poi);
+            media.setUrl(url);
+            media.setMediaType(resolveMediaType(mediaRequest.getMediaType()));
+            media.setSourceType(PoiMedia.SourceType.SYSTEM_WIKIMEDIA);
+            media.setModerationStatus(PoiMedia.ModerationStatus.APPROVED);
+            media.setModeratedBy(userId);
+            media.setModeratedAt(java.time.LocalDateTime.now());
+            media.setUserId(userId);
+
+            poi.getMedia().add(media);
+            existingSystemUrls.add(url);
+        }
+    }
+
+    private boolean isWikimediaMediaUrl(String url) {
+        String normalized = StringUtils.defaultString(url).toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("wikimedia.org") || normalized.contains("wikipedia.org");
+    }
+
+    private PoiMedia.MediaType resolveMediaType(PoiMedia.MediaType mediaType) {
+        return mediaType != null ? mediaType : PoiMedia.MediaType.PHOTO;
     }
 
     private void applySimpleFields(Poi poi, PoiCreateRequest request, PoiType poiType) {
@@ -280,12 +348,27 @@ public class PoiCommandServiceImpl implements PoiCommandService {
                 continue;
             }
 
+            String mediaUrl = mediaRequest.getUrl().trim();
+
             PoiMedia media = new PoiMedia();
-            media.setUrl(mediaRequest.getUrl().trim());
-            media.setMediaType(mediaRequest.getMediaType());
+            media.setUrl(mediaUrl);
+            media.setMediaType(resolveMediaType(mediaRequest.getMediaType()));
+            media.setSourceType(resolveImportedMediaSourceType(mediaUrl));
+            media.setModerationStatus(PoiMedia.ModerationStatus.APPROVED);
+            media.setModeratedBy(userId);
+            media.setModeratedAt(java.time.LocalDateTime.now());
             media.setUserId(userId);
+
             poi.addMedia(media);
         }
+    }
+
+    private PoiMedia.SourceType resolveImportedMediaSourceType(String mediaUrl) {
+        String normalized = StringUtils.defaultString(mediaUrl).toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("wikimedia.org") || normalized.contains("wikipedia.org")) {
+            return PoiMedia.SourceType.SYSTEM_WIKIMEDIA;
+        }
+        return PoiMedia.SourceType.ADMIN_UPLOAD;
     }
 
     private void appendSourcesIfMissing(Poi poi, List<PoiCreateRequest.SourceRequest> sourceRequests) {

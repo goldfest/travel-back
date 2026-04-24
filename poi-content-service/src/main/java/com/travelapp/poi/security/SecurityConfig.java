@@ -29,12 +29,8 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) -> {
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                        })
-                        .accessDeniedHandler((request, response, accessDeniedException) -> {
-                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                        })
+                        .authenticationEntryPoint((request, response, authException) -> response.setStatus(HttpServletResponse.SC_UNAUTHORIZED))
+                        .accessDeniedHandler((request, response, accessDeniedException) -> response.setStatus(HttpServletResponse.SC_FORBIDDEN))
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
@@ -44,6 +40,15 @@ public class SecurityConfig {
                                 "/api-docs/**",
                                 "/actuator/**"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/media/poi/**").permitAll()
+
+                        // Media moderation must be checked before public GET /pois/** rule
+                        .requestMatchers(HttpMethod.GET, "/pois/media/pending").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/pois/*/media/admin").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/pois/*/media/*/approve").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/pois/*/media/*/reject").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.DELETE, "/pois/*/media/*").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/pois/*/media").authenticated()
 
                         .requestMatchers(HttpMethod.GET,
                                 "/pois/**",

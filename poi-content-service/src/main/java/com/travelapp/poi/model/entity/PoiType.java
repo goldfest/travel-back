@@ -26,7 +26,7 @@ public class PoiType {
     @Column(name = "name", nullable = false, length = 64)
     private String name;
 
-    @Column(name = "icon", length = 120)
+    @Column(name = "icon", length = 500)
     private String icon;
 
     @CreationTimestamp

@@ -68,3 +68,9 @@ services:
     cell-step-km: 2
     search-radius-meters: 2500
 
+
+app:
+  media:
+    upload-dir: ${POI_MEDIA_UPLOAD_DIR:uploads/poi-media}
+    public-url-prefix: ${POI_MEDIA_PUBLIC_URL_PREFIX:/api/poi/media/poi}
+    max-file-size-bytes: ${POI_MEDIA_MAX_FILE_SIZE_BYTES:5242880}

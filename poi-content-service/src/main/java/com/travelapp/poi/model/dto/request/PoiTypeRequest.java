@@ -15,6 +15,6 @@ public class PoiTypeRequest {
     @Size(max = 64, message = "Name must be less than 64 characters")
     private String name;
 
-    @Size(max = 120, message = "Icon URL must be less than 120 characters")
+    @Size(max = 500, message = "Icon URL must be less than 120 characters")
     private String icon;
 }

@@ -1,5 +1,6 @@
 package com.travelapp.poi.security;
 
+import com.travelapp.poi.exception.ForbiddenException;
 import com.travelapp.poi.exception.UnauthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -32,7 +33,13 @@ public final class SecurityUtils {
 
     public static void requireAdmin() {
         if (!hasRole("ADMIN")) {
-            throw new com.travelapp.poi.exception.ValidationException("Admin only");
+            throw new ForbiddenException("Admin only");
+        }
+    }
+
+    public static void requireAdminOrModerator() {
+        if (!hasRole("ADMIN") && !hasRole("MODERATOR")) {
+            throw new ForbiddenException("Admin or moderator only");
         }
     }
 }

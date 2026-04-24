@@ -26,9 +26,34 @@ public class PoiMedia {
     @Enumerated(EnumType.STRING)
     private MediaType mediaType;
 
+    @Column(name = "source_type", nullable = false, length = 32)
+    @Enumerated(EnumType.STRING)
+    private SourceType sourceType = SourceType.USER_UPLOAD;
+
     @Column(name = "moderation_status", length = 16)
     @Enumerated(EnumType.STRING)
     private ModerationStatus moderationStatus = ModerationStatus.PENDING;
+
+    @Column(name = "display_order")
+    private Integer displayOrder;
+
+    @Column(name = "original_filename", length = 255)
+    private String originalFilename;
+
+    @Column(name = "content_type", length = 100)
+    private String contentType;
+
+    @Column(name = "file_size")
+    private Long fileSize;
+
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
+    @Column(name = "moderated_by")
+    private Long moderatedBy;
+
+    @Column(name = "moderated_at")
+    private LocalDateTime moderatedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
@@ -43,6 +68,12 @@ public class PoiMedia {
 
     public enum MediaType {
         IMAGE, PHOTO, COVER, MENU, VIDEO
+    }
+
+    public enum SourceType {
+        SYSTEM_WIKIMEDIA,
+        ADMIN_UPLOAD,
+        USER_UPLOAD
     }
 
     public enum ModerationStatus {

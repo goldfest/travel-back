@@ -6,6 +6,7 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -49,4 +50,8 @@ public class PoiUpdateRequest {
 
     @JsonProperty("features")
     private Map<String, String> features;
+
+    private Long poiTypeId;
+
+    private List<PoiCreateRequest.HoursRequest> hours;
 }
