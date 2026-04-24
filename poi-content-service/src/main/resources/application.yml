@@ -62,9 +62,9 @@ services:
   two-gis:
     base-url: https://catalog.api.2gis.com
     api-key: ${TWO_GIS_API_KEY}
-    page-size: 10
-    max-pages: 20
-    grid-radius-km: 12
-    cell-step-km: 4
+    page-size: 5
+    max-pages: 1
+    grid-radius-km: 2
+    cell-step-km: 2
     search-radius-meters: 2500
 
