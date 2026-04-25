@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "reports", schema = "review_service")
@@ -50,6 +52,18 @@ public class Report {
 
     @Column(name = "poi_id")
     private Long poiId;
+
+    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<ReportMedia> media = new ArrayList<>();
+
+    public void addMedia(ReportMedia mediaItem) {
+        if (media == null) {
+            media = new ArrayList<>();
+        }
+        mediaItem.setReport(this);
+        media.add(mediaItem);
+    }
 
     @PrePersist
     public void onCreate() {

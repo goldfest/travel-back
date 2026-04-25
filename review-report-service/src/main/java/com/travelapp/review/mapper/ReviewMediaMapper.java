@@ -19,7 +19,11 @@ public interface ReviewMediaMapper {
         if (imageUrl == null) {
             return null;
         }
-        // Генерация URL для thumbnail (можно настроить под конкретный CDN)
+        // Для локального файлового хранилища отдельный thumbnail пока не формируется.
+        // Возвращаем тот же URL, чтобы фронт мог использовать одно поле.
+        if (imageUrl.startsWith("/api/")) {
+            return imageUrl;
+        }
         return imageUrl.replace("/upload/", "/upload/w_200,h_200,c_fill/");
     }
 
@@ -29,6 +33,8 @@ public interface ReviewMediaMapper {
         }
         return ReviewMedia.builder()
                 .imageUrl(imageUrl)
+                .sourceType(ReviewMedia.SourceType.USER_UPLOAD)
+                .moderationStatus(ReviewMedia.ModerationStatus.APPROVED)
                 .build();
     }
 }

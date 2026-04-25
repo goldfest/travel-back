@@ -22,23 +22,32 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     Optional<Review> findByPoiIdAndUserId(Long poiId, Long userId);
 
-    List<Review> findByPoiIdAndIsHiddenFalse(Long poiId);
+    List<Review> findByPoiIdAndIsHiddenFalseAndModerationStatus(Long poiId, Review.ModerationStatus moderationStatus);
 
-    Page<Review> findByPoiIdAndIsHiddenFalse(Long poiId, Pageable pageable);
+    Page<Review> findByPoiIdAndIsHiddenFalseAndModerationStatus(Long poiId,
+                                                                Review.ModerationStatus moderationStatus,
+                                                                Pageable pageable);
 
-    @Query("SELECT r FROM Review r WHERE r.poiId = :poiId AND r.rating = :rating")
+    Page<Review> findByModerationStatusOrderByCreatedAtAsc(Review.ModerationStatus moderationStatus, Pageable pageable);
+
+    @Query("SELECT r FROM Review r WHERE r.poiId = :poiId AND r.rating = :rating AND r.isHidden = false AND r.moderationStatus = :status")
     Page<Review> findByPoiIdAndRating(@Param("poiId") Long poiId,
                                       @Param("rating") Short rating,
+                                      @Param("status") Review.ModerationStatus status,
                                       Pageable pageable);
 
-    @Query("SELECT AVG(r.rating) FROM Review r WHERE r.poiId = :poiId AND r.isHidden = false")
-    Double calculateAverageRating(@Param("poiId") Long poiId);
+    @Query("SELECT AVG(r.rating) FROM Review r WHERE r.poiId = :poiId AND r.isHidden = false AND r.moderationStatus = :status")
+    Double calculateAverageRating(@Param("poiId") Long poiId,
+                                  @Param("status") Review.ModerationStatus status);
 
-    @Query("SELECT COUNT(r) FROM Review r WHERE r.poiId = :poiId AND r.isHidden = false")
-    Long countVisibleReviews(@Param("poiId") Long poiId);
+    @Query("SELECT COUNT(r) FROM Review r WHERE r.poiId = :poiId AND r.isHidden = false AND r.moderationStatus = :status")
+    Long countVisibleReviews(@Param("poiId") Long poiId,
+                             @Param("status") Review.ModerationStatus status);
 
-    @Query("SELECT r FROM Review r WHERE r.userId = :userId AND r.isHidden = false")
-    Page<Review> findVisibleByUserId(@Param("userId") Long userId, Pageable pageable);
+    @Query("SELECT r FROM Review r WHERE r.userId = :userId AND r.isHidden = false AND r.moderationStatus = :status")
+    Page<Review> findVisibleByUserId(@Param("userId") Long userId,
+                                     @Param("status") Review.ModerationStatus status,
+                                     Pageable pageable);
 
     boolean existsByPoiIdAndUserId(Long poiId, Long userId);
 }

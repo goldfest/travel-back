@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -26,4 +27,7 @@ public class ReportResponse {
     private String userAvatarUrl;
     private String handledByUserName;
     private String handledByUserAvatarUrl;
+
+    private List<ReportMediaResponse> media;
+    private Integer totalMediaCount;
 }

@@ -40,6 +40,9 @@ public class SecurityConfig {
                                 "/actuator/**"
                         ).permitAll()
 
+                        // uploaded media files
+                        .requestMatchers(HttpMethod.GET, "/media/**").permitAll()
+
                         // internal
                         .requestMatchers("/internal/**").permitAll()
 
@@ -55,17 +58,24 @@ public class SecurityConfig {
 
                         // authenticated review endpoints
                         .requestMatchers(HttpMethod.POST, "/v1/reviews").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/v1/reviews/with-media").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/v1/reviews/*/media").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/v1/reviews/*").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/v1/reviews/*").authenticated()
                         .requestMatchers(HttpMethod.POST, "/v1/reviews/*/like").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v1/reviews/check/*").authenticated()
 
                         // review moderation
+                        .requestMatchers(HttpMethod.GET, "/v1/reviews/moderation/pending").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.POST, "/v1/reviews/*/hide").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.POST, "/v1/reviews/*/unhide").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/v1/reviews/*/approve").hasAnyRole("ADMIN", "MODERATOR")
+                        .requestMatchers(HttpMethod.POST, "/v1/reviews/*/reject").hasAnyRole("ADMIN", "MODERATOR")
 
                         // user report endpoints
                         .requestMatchers(HttpMethod.POST, "/v1/reports").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/v1/reports/with-media").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/v1/reports/*/media").authenticated()
                         .requestMatchers(HttpMethod.GET, "/v1/reports/my").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/v1/reports/*").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/v1/reports/*").authenticated()

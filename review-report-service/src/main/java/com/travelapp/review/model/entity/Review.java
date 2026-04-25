@@ -22,6 +22,12 @@ import java.util.List;
 @EntityListeners(AuditingEntityListener.class)
 public class Review {
 
+    public enum ModerationStatus {
+        PENDING,
+        APPROVED,
+        REJECTED
+    }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -34,6 +40,19 @@ public class Review {
 
     @Column(name = "is_hidden")
     private Boolean isHidden = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "moderation_status", nullable = false, length = 16)
+    private ModerationStatus moderationStatus = ModerationStatus.APPROVED;
+
+    @Column(name = "moderated_by_user_id")
+    private Long moderatedByUserId;
+
+    @Column(name = "moderated_at")
+    private LocalDateTime moderatedAt;
+
+    @Column(name = "moderation_comment", length = 1000)
+    private String moderationComment;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
@@ -59,6 +78,14 @@ public class Review {
     @OneToMany(mappedBy = "review", cascade = CascadeType.ALL)
     @Builder.Default
     private List<ReviewLike> likes = new ArrayList<>();
+
+    public void addMedia(ReviewMedia mediaItem) {
+        if (media == null) {
+            media = new ArrayList<>();
+        }
+        mediaItem.setReview(this);
+        media.add(mediaItem);
+    }
 
     @PrePersist
     @PreUpdate

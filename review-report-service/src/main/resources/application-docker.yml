@@ -4,3 +4,7 @@ spring:
     username: postgres
     password: 1234
 
+app:
+  media:
+    upload-dir: ${REVIEW_MEDIA_UPLOAD_DIR:/app/uploads/review-media}
+    public-url-prefix: ${REVIEW_MEDIA_PUBLIC_URL_PREFIX:/api/reviews/media}

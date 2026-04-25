@@ -130,6 +130,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: 1234
       AUTH_SERVICE_URL: http://auth-service:8084/api
       POI_SERVICE_URL: http://poi-service:8081/api/poi
+      REVIEW_MEDIA_UPLOAD_DIR: /app/uploads/review-media
+      REVIEW_MEDIA_PUBLIC_URL_PREFIX: /api/reviews/media
+    volumes:
+      - ./uploads/review-media:/app/uploads/review-media
     restart: unless-stopped
     networks: [travel-net]
 

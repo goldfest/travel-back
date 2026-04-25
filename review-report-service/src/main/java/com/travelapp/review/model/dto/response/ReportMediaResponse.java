@@ -1,6 +1,5 @@
 package com.travelapp.review.model.dto.response;
 
-import com.travelapp.review.model.entity.ReviewMedia;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,13 +11,12 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ReviewMediaResponse {
+public class ReportMediaResponse {
 
     private Long id;
-    private String imageUrl;
-    private String thumbnailUrl;
-    private ReviewMedia.SourceType sourceType;
-    private ReviewMedia.ModerationStatus moderationStatus;
+    private Long reportId;
+    private String url;
+    private String mediaType;
     private String originalFilename;
     private String contentType;
     private Long fileSize;

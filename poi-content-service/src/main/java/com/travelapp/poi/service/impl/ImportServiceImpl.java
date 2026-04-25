@@ -243,7 +243,14 @@ public class ImportServiceImpl implements ImportService {
     }
 
     private void importFromWikipedia(DataImportTask task, Long userId) {
-        log.info("Importing from Wikipedia: taskId={}, sourceUrl='{}'", task.getId(), task.getQuery());
+        String sourceUrl = normalizeWikipediaSourceUrl(task.getQuery());
+
+        log.info(
+                "Importing from Wikipedia: taskId={}, query='{}', sourceUrl='{}'",
+                task.getId(),
+                task.getQuery(),
+                sourceUrl
+        );
 
         int found = 0;
         int created = 0;
@@ -254,10 +261,9 @@ public class ImportServiceImpl implements ImportService {
         try {
             requireCityId(task, "Wikipedia");
 
-
             MlImportFromSourceRequest request = new MlImportFromSourceRequest();
             request.setSourceCode("WIKIPEDIA");
-            request.setSourceUrl(task.getQuery());
+            request.setSourceUrl(sourceUrl);
             request.setCityId(task.getCityId());
             request.setLanguage("ru");
             request.setPoiTypeHint("landmark");
@@ -265,7 +271,8 @@ public class ImportServiceImpl implements ImportService {
             MlEnrichResponse enrichResponse = mlPoiWorkerClient.importFromSource(request);
             found++;
 
-            PoiImportOutcome outcome = processEnrichedPoi(task, userId, enrichResponse, task.getQuery());
+            PoiImportOutcome outcome = processEnrichedPoi(task, userId, enrichResponse, sourceUrl);
+
             if (outcome == PoiImportOutcome.CREATED) {
                 created++;
             } else if (outcome == PoiImportOutcome.UPDATED) {
@@ -282,6 +289,38 @@ public class ImportServiceImpl implements ImportService {
         } catch (Exception ex) {
             throw new RuntimeException("Wikipedia import failed: " + ex.getMessage(), ex);
         }
+    }
+
+    private String normalizeWikipediaSourceUrl(String queryOrUrl) {
+        if (queryOrUrl == null || queryOrUrl.isBlank()) {
+            throw new IllegalArgumentException("Wikipedia query or URL must not be blank");
+        }
+
+        String value = queryOrUrl.trim();
+
+        if (isHttpUrl(value)) {
+            return value;
+        }
+
+        String normalizedTitle = value
+                .replace(' ', '_')
+                .replaceAll("_+", "_");
+
+        String encodedTitle = java.net.URLEncoder.encode(
+                normalizedTitle,
+                java.nio.charset.StandardCharsets.UTF_8
+        );
+
+        return "https://ru.wikipedia.org/wiki/" + encodedTitle;
+    }
+
+    private boolean isHttpUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
     }
 
     private void importFrom2GIS(DataImportTask task, Long userId) {

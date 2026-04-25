@@ -8,16 +8,24 @@ import com.travelapp.review.model.dto.request.CreateReportRequest;
 import com.travelapp.review.model.dto.request.UpdateReportRequest;
 import com.travelapp.review.model.dto.response.ReportResponse;
 import com.travelapp.review.model.entity.Report;
+import com.travelapp.review.model.entity.ReportMedia;
 import com.travelapp.review.repository.ReportRepository;
 import com.travelapp.review.repository.ReviewRepository;
 import com.travelapp.review.service.AuthUserService;
 import com.travelapp.review.service.ReportService;
+import com.travelapp.review.service.media.ReviewMediaStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,10 +37,61 @@ public class ReportServiceImpl implements ReportService {
     private final ReportMapper reportMapper;
     private final PoiClient poiClient;
     private final AuthUserService authUserService;
+    private final ReviewMediaStorageService mediaStorageService;
 
     @Override
     @Transactional
     public ReportResponse createReport(Long userId, CreateReportRequest request) {
+        Report saved = createReportEntity(userId, request);
+        return enrich(saved);
+    }
+
+    @Override
+    @Transactional
+    public ReportResponse createReportWithMedia(Long userId, CreateReportRequest request, List<MultipartFile> files) {
+        Report saved = createReportEntity(userId, request);
+
+        List<ReportMedia> media = mediaStorageService.createReportMedia(saved, userId, files);
+        for (ReportMedia mediaItem : media) {
+            saved.addMedia(mediaItem);
+        }
+
+        if ((saved.getPhotoUrl() == null || saved.getPhotoUrl().isBlank()) && !media.isEmpty()) {
+            saved.setPhotoUrl(media.get(0).getFileUrl());
+        }
+
+        saved = reportRepository.save(saved);
+        return enrich(saved);
+    }
+
+    @Override
+    @Transactional
+    public ReportResponse addMediaToReport(Long id, Long userId, List<MultipartFile> files) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found with id: " + id));
+
+        if (!report.getUserId().equals(userId)) {
+            throw new SecurityException("User is not authorized to update this report");
+        }
+
+        if (!isPending(report.getStatus())) {
+            throw new IllegalArgumentException("Only pending report can be updated");
+        }
+
+        List<ReportMedia> media = mediaStorageService.createReportMedia(report, userId, files);
+        for (ReportMedia mediaItem : media) {
+            report.addMedia(mediaItem);
+        }
+
+        if ((report.getPhotoUrl() == null || report.getPhotoUrl().isBlank()) && !media.isEmpty()) {
+            report.setPhotoUrl(media.get(0).getFileUrl());
+        }
+
+        Report saved = reportRepository.save(report);
+        return enrich(saved);
+    }
+
+    private Report createReportEntity(Long userId, CreateReportRequest request) {
         validateCreateRequest(request);
 
         if (request.getPoiId() != null) {
@@ -59,14 +118,15 @@ public class ReportServiceImpl implements ReportService {
             report.setStatus("pending");
         }
 
-        Report saved = reportRepository.save(report);
-        return enrich(saved);
+        return reportRepository.save(report);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getReportsByUserId(Long userId, Pageable pageable) {
-        return reportRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
+        Pageable safePageable = sanitizeReportPageable(pageable);
+
+        return reportRepository.findByUserIdOrderByCreatedAtDesc(userId, safePageable)
                 .map(this::enrich);
     }
 
@@ -87,6 +147,7 @@ public class ReportServiceImpl implements ReportService {
         if (request.getComment() != null) {
             report.setComment(request.getComment());
         }
+
         if (request.getPhotoUrl() != null) {
             report.setPhotoUrl(request.getPhotoUrl());
         }
@@ -115,21 +176,27 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getAllReports(Pageable pageable) {
-        return reportRepository.findAllByOrderByCreatedAtDesc(pageable)
+        Pageable safePageable = sanitizeReportPageable(pageable);
+
+        return reportRepository.findAllByOrderByCreatedAtDesc(safePageable)
                 .map(this::enrich);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getReportsByStatus(String status, Pageable pageable) {
-        return reportRepository.findByStatusOrderByCreatedAtDesc(status.toLowerCase(), pageable)
+        Pageable safePageable = sanitizeReportPageable(pageable);
+
+        return reportRepository.findByStatusOrderByCreatedAtDesc(status, safePageable)
                 .map(this::enrich);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> getReportsByModeratorId(Long moderatorId, Pageable pageable) {
-        return reportRepository.findByHandledByUserIdOrderByCreatedAtDesc(moderatorId, pageable)
+        Pageable safePageable = sanitizeReportPageable(pageable);
+
+        return reportRepository.findByHandledByUserIdOrderByCreatedAtDesc(moderatorId, safePageable)
                 .map(this::enrich);
     }
 
@@ -174,9 +241,11 @@ public class ReportServiceImpl implements ReportService {
         }
 
         String normalized = status.trim().toLowerCase();
+
         if (!normalized.equals("approved") && !normalized.equals("rejected")) {
             throw new IllegalArgumentException("Allowed statuses: approved, rejected");
         }
+
         return normalized;
     }
 
@@ -219,5 +288,36 @@ public class ReportServiceImpl implements ReportService {
             log.warn("Failed to resolve avatar for userId={}", userId);
             return null;
         }
+    }
+
+    private Pageable sanitizeReportPageable(Pageable pageable) {
+        Set<String> allowedSortFields = Set.of(
+                "id",
+                "reportType",
+                "status",
+                "createdAt",
+                "handledAt",
+                "userId",
+                "handledByUserId",
+                "reviewId",
+                "poiId"
+        );
+
+        Sort safeSort = Sort.by(
+                pageable.getSort().stream()
+                        .filter(order -> allowedSortFields.contains(order.getProperty()))
+                        .map(order -> new Sort.Order(order.getDirection(), order.getProperty()))
+                        .toList()
+        );
+
+        if (safeSort.isUnsorted()) {
+            safeSort = Sort.by(Sort.Direction.DESC, "createdAt");
+        }
+
+        return PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                safeSort
+        );
     }
 }

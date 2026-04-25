@@ -4,7 +4,6 @@ import com.travelapp.review.model.dto.request.CreateReviewRequest;
 import com.travelapp.review.model.dto.request.UpdateReviewRequest;
 import com.travelapp.review.model.dto.response.ReviewResponse;
 import com.travelapp.review.model.entity.Review;
-import com.travelapp.review.model.entity.ReviewMedia;
 import org.mapstruct.*;
 
 import java.util.List;
@@ -19,6 +18,10 @@ public interface ReviewMapper {
     @Mapping(target = "likes", ignore = true)
     @Mapping(target = "likesCount", constant = "0")
     @Mapping(target = "isHidden", constant = "false")
+    @Mapping(target = "moderationStatus", constant = "APPROVED")
+    @Mapping(target = "moderatedByUserId", ignore = true)
+    @Mapping(target = "moderatedAt", ignore = true)
+    @Mapping(target = "moderationComment", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     Review toEntity(CreateReviewRequest request);
@@ -36,6 +39,11 @@ public interface ReviewMapper {
     @Mapping(target = "likesCount", ignore = true)
     @Mapping(target = "poiId", ignore = true)
     @Mapping(target = "userId", ignore = true)
+    @Mapping(target = "isHidden", ignore = true)
+    @Mapping(target = "moderationStatus", ignore = true)
+    @Mapping(target = "moderatedByUserId", ignore = true)
+    @Mapping(target = "moderatedAt", ignore = true)
+    @Mapping(target = "moderationComment", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     void updateEntity(@MappingTarget Review review, UpdateReviewRequest request);

@@ -32,12 +32,23 @@ spring:
         order_updates: true
         format_sql: true
 
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 25MB
+
   cache:
     type: simple
 
 service:
   poi:
     url: http://poi-service:8081/api/poi
+
+app:
+  media:
+    upload-dir: ${REVIEW_MEDIA_UPLOAD_DIR:uploads/review-media}
+    public-url-prefix: ${REVIEW_MEDIA_PUBLIC_URL_PREFIX:/api/reviews/media}
+    max-file-size-bytes: ${REVIEW_MEDIA_MAX_FILE_SIZE_BYTES:5242880}
 
 springdoc:
   api-docs:
