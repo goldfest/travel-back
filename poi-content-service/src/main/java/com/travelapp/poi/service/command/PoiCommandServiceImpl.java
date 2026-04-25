@@ -92,7 +92,9 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         if (request.getLatitude() != null) poi.setLatitude(request.getLatitude());
         if (request.getLongitude() != null) poi.setLongitude(request.getLongitude());
         if (request.getAddress() != null) poi.setAddress(request.getAddress());
-        if (request.getDescription() != null) poi.setDescription(request.getDescription());
+        if (request.getDescription() != null) {
+            poi.setDescription(cleanHtmlToText(request.getDescription()));
+        }
         if (request.getPhone() != null) poi.setPhone(request.getPhone());
         if (request.getSiteUrl() != null) poi.setSiteUrl(request.getSiteUrl());
         if (request.getPriceLevel() != null) poi.setPriceLevel(request.getPriceLevel());
@@ -279,7 +281,7 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         poi.setLatitude(request.getLatitude());
         poi.setLongitude(request.getLongitude());
         poi.setAddress(request.getAddress());
-        poi.setDescription(request.getDescription());
+        poi.setDescription(cleanHtmlToText(request.getDescription()));
         poi.setPhone(request.getPhone());
         poi.setSiteUrl(request.getSiteUrl());
         poi.setPriceLevel(request.getPriceLevel());
@@ -452,7 +454,11 @@ public class PoiCommandServiceImpl implements PoiCommandService {
             return;
         }
 
-        String normalized = description.trim();
+        String normalized = cleanHtmlToText(description);
+
+        if (normalized == null || normalized.isBlank()) {
+            return;
+        }
 
         if (normalized.length() < 20) {
             throw new ValidationException("Description is too short");
@@ -472,6 +478,28 @@ public class PoiCommandServiceImpl implements PoiCommandService {
         if (!(normalized.startsWith("http://") || normalized.startsWith("https://"))) {
             throw new ValidationException(fieldName + " must start with http:// or https://");
         }
+    }
+
+    private String cleanHtmlToText(String html) {
+        if (html == null || html.isBlank()) {
+            return html;
+        }
+
+        String text = html
+                .replaceAll("(?is)<script.*?</script>", " ")
+                .replaceAll("(?is)<style.*?</style>", " ")
+                .replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?i)</p>", "\n")
+                .replaceAll("(?i)<p[^>]*>", "")
+                .replaceAll("(?i)<a[^>]*>", "")
+                .replaceAll("(?i)</a>", "")
+                .replaceAll("<[^>]+>", " ")
+                .replace("&nbsp;", " ")
+                .replace("&quot;", "\"")
+                .replace("&amp;", "&");
+
+        text = text.trim().replaceAll("\\s+", " ");
+        return text.isBlank() ? null : text;
     }
 
 }
