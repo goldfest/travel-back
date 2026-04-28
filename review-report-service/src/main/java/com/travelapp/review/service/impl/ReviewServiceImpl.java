@@ -207,7 +207,7 @@ public class ReviewServiceImpl implements ReviewService {
     public Page<ReviewResponse> getPendingReviews(Pageable pageable) {
         Pageable safePageable = sanitizeReviewPageable(pageable);
 
-        return reviewRepository.findByModerationStatusOrderByCreatedAtAsc(
+        return reviewRepository.findPendingReviews(
                 Review.ModerationStatus.PENDING,
                 safePageable
         ).map(review -> toReviewResponse(review, null, false));

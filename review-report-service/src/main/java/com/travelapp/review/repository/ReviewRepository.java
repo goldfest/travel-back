@@ -28,7 +28,15 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
                                                                 Review.ModerationStatus moderationStatus,
                                                                 Pageable pageable);
 
-    Page<Review> findByModerationStatusOrderByCreatedAtAsc(Review.ModerationStatus moderationStatus, Pageable pageable);
+    @Query("""
+       SELECT r FROM Review r
+       WHERE r.moderationStatus = :moderationStatus
+       ORDER BY r.createdAt ASC
+       """)
+    Page<Review> findPendingReviews(
+            @Param("moderationStatus") Review.ModerationStatus moderationStatus,
+            Pageable pageable
+    );
 
     @Query("SELECT r FROM Review r WHERE r.poiId = :poiId AND r.rating = :rating AND r.isHidden = false AND r.moderationStatus = :status")
     Page<Review> findByPoiIdAndRating(@Param("poiId") Long poiId,
