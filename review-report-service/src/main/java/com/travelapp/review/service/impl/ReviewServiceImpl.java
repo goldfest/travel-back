@@ -481,13 +481,11 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     private void applyInitialModerationState(Review review, boolean hasMedia) {
-        if (hasMedia) {
-            review.setIsHidden(true);
-            review.setModerationStatus(Review.ModerationStatus.PENDING);
-        } else {
-            review.setIsHidden(false);
-            review.setModerationStatus(Review.ModerationStatus.APPROVED);
-        }
+        review.setIsHidden(true);
+        review.setModerationStatus(Review.ModerationStatus.PENDING);
+        review.setModerationComment(null);
+        review.setModeratedAt(null);
+        review.setModeratedByUserId(null);
     }
 
     private void validateReviewCanBeViewed(Review review, Long currentUserId) {
