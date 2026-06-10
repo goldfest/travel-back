@@ -5,6 +5,8 @@ public record CityGraphStatusResponse(
         boolean downloaded,
         boolean downloading,
         boolean ready,
-        String status
+        String status,
+        Integer progressPercent,
+        String message
 ) {
 }

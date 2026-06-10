@@ -109,7 +109,7 @@ public class RouteOptimizationService {
                 .flatMap(day -> day.getRoutePoints().stream()
                         .sorted(Comparator.comparing(RoutePoint::getOrderIndex))
                         .filter(point -> !isScheduled(point))
-                        .map(point -> buildUnscheduledPointSummary(day, point)))
+                        .map(point -> buildUnscheduledPointSummary(route, day, point)))
                 .toList();
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -121,7 +121,9 @@ public class RouteOptimizationService {
         return summary;
     }
 
-    private Map<String, Object> buildUnscheduledPointSummary(RouteDay day, RoutePoint point) {
+    private Map<String, Object> buildUnscheduledPointSummary(Route route, RouteDay day, RoutePoint point) {
+        int visitMinutes = resolveVisitMinutes(point);
+
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("routePointId", point.getId());
         item.put("poiId", point.getPoiId());
@@ -129,8 +131,92 @@ public class RouteOptimizationService {
         item.put("routeDayId", day.getId());
         item.put("dayNumber", day.getDayNumber());
         item.put("routeDate", day.getRouteDate());
-        item.put("reason", "Не удалось встроить объект в окно дня с учетом графика работы и времени посещения");
+        item.put("reasonCode", "DAY_WINDOW_OVERFLOW");
+        item.put("reason", "Объект не помещается в выбранный день с учётом дороги, графика работы и времени посещения");
+        item.put("currentVisitMinutes", visitMinutes);
+        item.put("suggestions", buildUnscheduledPointSuggestions(route, day, point, visitMinutes));
         return item;
+    }
+
+    private List<Map<String, Object>> buildUnscheduledPointSuggestions(
+            Route route,
+            RouteDay originalDay,
+            RoutePoint point,
+            int visitMinutes
+    ) {
+        List<Map<String, Object>> suggestions = new ArrayList<>();
+
+        route.getRouteDays().stream()
+                .sorted(Comparator.comparing(RouteDay::getDayNumber))
+                .filter(day -> !Objects.equals(day.getId(), originalDay.getId()))
+                .map(day -> buildMoveSuggestion(day, visitMinutes))
+                .filter(Objects::nonNull)
+                .limit(3)
+                .forEach(suggestions::add);
+
+        int reducedVisitMinutes = Math.max(30, Math.min(visitMinutes - 15, (int) Math.floor(visitMinutes * 0.75)));
+        if (reducedVisitMinutes > 0 && reducedVisitMinutes < visitMinutes) {
+            Map<String, Object> reduce = new LinkedHashMap<>();
+            reduce.put("type", "REDUCE_VISIT_TIME");
+            reduce.put("title", "Сократить время посещения");
+            reduce.put("description", "Попробуйте уменьшить посещение «" + safePointName(point) + "» до " + reducedVisitMinutes + " минут или сократить соседние точки дня.");
+            reduce.put("routePointId", point.getId());
+            reduce.put("recommendedVisitMinutes", reducedVisitMinutes);
+            suggestions.add(reduce);
+        }
+
+        Map<String, Object> extend = new LinkedHashMap<>();
+        extend.put("type", "EXTEND_DAY");
+        extend.put("title", "Увеличить окно дня");
+        extend.put("description", "Если день можно закончить позже, увеличьте окончание дня и повторите оптимизацию.");
+        extend.put("routeDayId", originalDay.getId());
+        extend.put("dayNumber", originalDay.getDayNumber());
+        suggestions.add(extend);
+
+        return suggestions;
+    }
+
+    private Map<String, Object> buildMoveSuggestion(RouteDay day, int visitMinutes) {
+        if (day.getPlannedStart() == null || day.getPlannedEnd() == null) {
+            return null;
+        }
+
+        long freeMinutes = estimateRemainingDayMinutes(day);
+        if (freeMinutes < Math.min(visitMinutes, 30)) {
+            return null;
+        }
+
+        Map<String, Object> move = new LinkedHashMap<>();
+        move.put("type", "MOVE_TO_DAY");
+        move.put("title", "Перенести в день " + day.getDayNumber());
+        move.put("description", "В этом дне ориентировочно свободно " + freeMinutes + " минут. Можно добавить точку туда и повторить оптимизацию.");
+        move.put("routeDayId", day.getId());
+        move.put("dayNumber", day.getDayNumber());
+        move.put("routeDate", day.getRouteDate());
+        move.put("availableMinutes", freeMinutes);
+        return move;
+    }
+
+    private long estimateRemainingDayMinutes(RouteDay day) {
+        LocalDateTime start = day.getPlannedStart();
+        LocalDateTime end = day.getPlannedEnd();
+        if (start == null || end == null || !end.isAfter(start)) {
+            return 0;
+        }
+
+        LocalDateTime busyUntil = day.getRoutePoints().stream()
+                .map(RoutePoint::getPlannedDepartureAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(start);
+
+        return Math.max(0, Duration.between(busyUntil, end).toMinutes());
+    }
+
+    private String safePointName(RoutePoint point) {
+        return point.getPoiName() != null && !point.getPoiName().isBlank()
+                ? point.getPoiName()
+                : "объекта";
     }
 
     private void validateOptimizationRequest(
@@ -146,10 +232,8 @@ public class RouteOptimizationService {
                 .sorted(Comparator.comparing(RouteDay::getDayNumber))
                 .toList();
 
-        if (daySettings.size() != days.size()) {
-            throw new RouteValidationException("Для оптимизации необходимо указать настройки для каждого дня маршрута");
-        }
-
+        // Настройки дня теперь можно передавать частично: если клиент не указал дату/время,
+        // используются уже сохранённые значения дня или безопасные дефолты 09:00–18:00.
         Set<Long> routeDayIds = days.stream()
                 .map(RouteDay::getId)
                 .filter(Objects::nonNull)
@@ -161,13 +245,9 @@ public class RouteOptimizationService {
             if (routeDayId == null || !routeDayIds.contains(routeDayId)) {
                 throw new RouteValidationException("Настройки оптимизации содержат день, который не принадлежит маршруту");
             }
-            if (dayRequest.getRouteDate() == null) {
-                throw new RouteValidationException("Для каждого дня маршрута должна быть указана дата");
-            }
-            if (dayRequest.getDayStartTime() == null || dayRequest.getDayEndTime() == null) {
-                throw new RouteValidationException("Для каждого дня маршрута необходимо указать начало и окончание дня");
-            }
-            if (!dayRequest.getDayStartTime().isBefore(dayRequest.getDayEndTime())) {
+            if (dayRequest.getDayStartTime() != null
+                    && dayRequest.getDayEndTime() != null
+                    && !dayRequest.getDayStartTime().isBefore(dayRequest.getDayEndTime())) {
                 throw new RouteValidationException("Время начала дня должно быть раньше времени окончания");
             }
         }

@@ -3,8 +3,8 @@ package com.travelapp.graphimport.service.impl;
 import com.travelapp.graphimport.model.entity.PoiGraphBinding;
 import com.travelapp.graphimport.model.entity.RoadEdge;
 import com.travelapp.graphimport.model.entity.RoadNode;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,32 +13,99 @@ import org.springframework.stereotype.Service;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GraphImportPersistenceService {
 
-    private final EntityManager entityManager;
+    private static final String ROAD_NODES_SEQUENCE = "road_nodes_id_seq";
+
     private final JdbcTemplate jdbcTemplate;
 
     @Value("${graph-import.batch-size:1000}")
     private int batchSize;
 
+    /**
+     * Метод оставлен для совместимости. Массовый импорт теперь выполняется без длинной транзакции,
+     * поэтому SET LOCAL здесь не используется.
+     */
+    public void configureImportSession() {
+        // no-op
+    }
+
     public void persistNodes(Collection<RoadNode> nodes) {
-        int i = 0;
-        for (RoadNode node : nodes) {
-            entityManager.persist(node);
-            i++;
-            if (i % batchSize == 0) {
-                entityManager.flush();
-            }
+        persistNodes(nodes, null);
+    }
+
+    public void persistNodes(Collection<RoadNode> nodes, BiConsumer<Integer, Integer> progressCallback) {
+        if (nodes == null || nodes.isEmpty()) {
+            return;
         }
-        entityManager.flush();
+
+        List<RoadNode> nodeList = new ArrayList<>(nodes);
+        String sql = """
+                INSERT INTO road_nodes (
+                    id,
+                    city_id,
+                    graph_version_id,
+                    latitude,
+                    longitude,
+                    geom
+                ) VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326))
+                """;
+
+        int total = nodeList.size();
+        int effectiveBatchSize = effectiveBatchSize();
+        int saved = 0;
+        long startedAt = System.currentTimeMillis();
+
+        for (int from = 0; from < total; from += effectiveBatchSize) {
+            int to = Math.min(from + effectiveBatchSize, total);
+            List<RoadNode> batch = nodeList.subList(from, to);
+            assignNodeIds(batch);
+
+            log.info("Graph import nodes batch started: from={} to={} total={} batchSize={}",
+                    from + 1, to, total, batch.size());
+
+            jdbcTemplate.batchUpdate(
+                    sql,
+                    new BatchPreparedStatementSetter() {
+                        @Override
+                        public void setValues(PreparedStatement ps, int i) throws SQLException {
+                            RoadNode node = batch.get(i);
+                            ps.setLong(1, node.getId());
+                            ps.setLong(2, node.getCityId());
+                            ps.setLong(3, node.getGraphVersion().getId());
+                            ps.setDouble(4, node.getLatitude());
+                            ps.setDouble(5, node.getLongitude());
+                            ps.setDouble(6, node.getLongitude());
+                            ps.setDouble(7, node.getLatitude());
+                        }
+
+                        @Override
+                        public int getBatchSize() {
+                            return batch.size();
+                        }
+                    }
+            );
+
+            saved = to;
+            publishProgress(progressCallback, saved, total);
+            log.info("Graph import nodes persisted: saved={}/{} batchSize={} elapsedMs={}",
+                    saved, total, batch.size(), System.currentTimeMillis() - startedAt);
+        }
     }
 
     public void persistEdges(List<RoadEdge> edges) {
+        persistEdges(edges, null);
+    }
+
+    public void persistEdges(List<RoadEdge> edges, BiConsumer<Integer, Integer> progressCallback) {
         if (edges == null || edges.isEmpty()) {
             return;
         }
@@ -55,8 +122,7 @@ public class GraphImportPersistenceService {
             return;
         }
 
-        jdbcTemplate.batchUpdate(
-                """
+        String sql = """
                 INSERT INTO road_edges (
                     city_id,
                     graph_version_id,
@@ -76,35 +142,84 @@ public class GraphImportPersistenceService {
                     polyline_json,
                     source
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ST_GeomFromText(?, 4326), ?::jsonb, ?)
-                """,
-                new BatchPreparedStatementSetter() {
-                    @Override
-                    public void setValues(PreparedStatement ps, int i) throws SQLException {
-                        RoadEdge edge = filteredEdges.get(i);
-                        ps.setLong(1, edge.getCityId());
-                        ps.setLong(2, edge.getGraphVersion().getId());
-                        ps.setLong(3, edge.getFromNode().getId());
-                        ps.setLong(4, edge.getToNode().getId());
-                        ps.setDouble(5, edge.getLengthM());
-                        ps.setBoolean(6, Boolean.TRUE.equals(edge.getWalkAllowed()));
-                        ps.setBoolean(7, Boolean.TRUE.equals(edge.getCarAllowed()));
-                        ps.setBoolean(8, Boolean.TRUE.equals(edge.getMixedAllowed()));
-                        ps.setBoolean(9, Boolean.TRUE.equals(edge.getPublicTransportAllowed()));
-                        setNullableInteger(ps, 10, edge.getWalkTimeSec());
-                        setNullableInteger(ps, 11, edge.getCarTimeSec());
-                        setNullableInteger(ps, 12, edge.getMixedTimeSec());
-                        setNullableInteger(ps, 13, edge.getPublicTransportTimeSec());
-                        ps.setBoolean(14, Boolean.TRUE.equals(edge.getBidirectional()));
-                        ps.setString(15, edge.getGeomWkt());
-                        ps.setString(16, edge.getPolylineJson());
-                        ps.setString(17, edge.getSource());
-                    }
+                """;
 
-                    @Override
-                    public int getBatchSize() {
-                        return filteredEdges.size();
+        int total = filteredEdges.size();
+        int effectiveBatchSize = effectiveBatchSize();
+        int saved = 0;
+        long startedAt = System.currentTimeMillis();
+
+        for (int from = 0; from < total; from += effectiveBatchSize) {
+            int to = Math.min(from + effectiveBatchSize, total);
+            List<RoadEdge> batch = filteredEdges.subList(from, to);
+
+            log.info("Graph import edges batch started: from={} to={} total={} batchSize={}",
+                    from + 1, to, total, batch.size());
+
+            jdbcTemplate.batchUpdate(
+                    sql,
+                    new BatchPreparedStatementSetter() {
+                        @Override
+                        public void setValues(PreparedStatement ps, int i) throws SQLException {
+                            RoadEdge edge = batch.get(i);
+                            ps.setLong(1, edge.getCityId());
+                            ps.setLong(2, edge.getGraphVersion().getId());
+                            ps.setLong(3, edge.getFromNode().getId());
+                            ps.setLong(4, edge.getToNode().getId());
+                            ps.setDouble(5, edge.getLengthM());
+                            ps.setBoolean(6, Boolean.TRUE.equals(edge.getWalkAllowed()));
+                            ps.setBoolean(7, Boolean.TRUE.equals(edge.getCarAllowed()));
+                            ps.setBoolean(8, Boolean.TRUE.equals(edge.getMixedAllowed()));
+                            ps.setBoolean(9, Boolean.TRUE.equals(edge.getPublicTransportAllowed()));
+                            setNullableInteger(ps, 10, edge.getWalkTimeSec());
+                            setNullableInteger(ps, 11, edge.getCarTimeSec());
+                            setNullableInteger(ps, 12, edge.getMixedTimeSec());
+                            setNullableInteger(ps, 13, edge.getPublicTransportTimeSec());
+                            ps.setBoolean(14, Boolean.TRUE.equals(edge.getBidirectional()));
+                            ps.setString(15, edge.getGeomWkt());
+                            ps.setString(16, edge.getPolylineJson());
+                            ps.setString(17, edge.getSource());
+                        }
+
+                        @Override
+                        public int getBatchSize() {
+                            return batch.size();
+                        }
                     }
-                }
+            );
+
+            saved = to;
+            publishProgress(progressCallback, saved, total);
+            log.info("Graph import edges persisted: saved={}/{} batchSize={} elapsedMs={}",
+                    saved, total, batch.size(), System.currentTimeMillis() - startedAt);
+        }
+    }
+
+
+    public void deleteGraphData(Long cityId, Long graphVersionId) {
+        jdbcTemplate.update(
+                "DELETE FROM poi_graph_bindings WHERE city_id = ? AND graph_version_id = ?",
+                cityId,
+                graphVersionId
+        );
+        jdbcTemplate.update(
+                "DELETE FROM road_edges WHERE city_id = ? AND graph_version_id = ?",
+                cityId,
+                graphVersionId
+        );
+        jdbcTemplate.update(
+                "DELETE FROM road_nodes WHERE city_id = ? AND graph_version_id = ?",
+                cityId,
+                graphVersionId
+        );
+        log.info("Graph import partial data cleaned: cityId={}, versionId={}", cityId, graphVersionId);
+    }
+
+    public void deleteBindings(Long cityId, Long graphVersionId) {
+        jdbcTemplate.update(
+                "DELETE FROM poi_graph_bindings WHERE city_id = ? AND graph_version_id = ?",
+                cityId,
+                graphVersionId
         );
     }
 
@@ -153,6 +268,35 @@ public class GraphImportPersistenceService {
                     }
                 }
         );
+
+        log.info("Graph import POI bindings persisted: count={}", bindings.size());
+    }
+
+    private void assignNodeIds(List<RoadNode> batch) {
+        List<Long> ids = jdbcTemplate.queryForList(
+                "SELECT nextval('" + ROAD_NODES_SEQUENCE + "') FROM generate_series(1, ?)",
+                Long.class,
+                batch.size()
+        );
+
+        if (ids.size() != batch.size()) {
+            throw new IllegalStateException("PostgreSQL вернул некорректное количество id для road_nodes: expected="
+                    + batch.size() + ", actual=" + ids.size());
+        }
+
+        for (int i = 0; i < batch.size(); i++) {
+            batch.get(i).setId(ids.get(i));
+        }
+    }
+
+    private int effectiveBatchSize() {
+        return Math.max(100, batchSize);
+    }
+
+    private void publishProgress(BiConsumer<Integer, Integer> progressCallback, int saved, int total) {
+        if (progressCallback != null) {
+            progressCallback.accept(saved, total);
+        }
     }
 
     private void setNullableInteger(PreparedStatement ps, int index, Integer value) throws SQLException {

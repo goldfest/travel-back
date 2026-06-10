@@ -55,6 +55,12 @@ public class CityGraphVersion {
     @Column(name = "imported_at")
     private LocalDateTime importedAt;
 
+    @Column(name = "progress_percent")
+    private Integer progressPercent = 0;
+
+    @Column(name = "progress_message", length = 300)
+    private String progressMessage;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

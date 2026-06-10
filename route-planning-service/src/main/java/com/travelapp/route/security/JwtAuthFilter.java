@@ -28,6 +28,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private final AuthClient authClient;
 
     @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "GET".equalsIgnoreCase(request.getMethod())
+                && path != null
+                && path.matches(".*/v1/graphs/cities/\\d+/status$");
+    }
+
+
+    @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,

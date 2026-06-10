@@ -58,6 +58,12 @@ public class CityGraphVersion {
     @Column(name = "failure_reason", length = 1000)
     private String failureReason;
 
+    @Column(name = "progress_percent")
+    private Integer progressPercent = 0;
+
+    @Column(name = "progress_message", length = 300)
+    private String progressMessage;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

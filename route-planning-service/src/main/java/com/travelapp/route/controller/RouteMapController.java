@@ -1,6 +1,8 @@
 package com.travelapp.route.controller;
 
+import com.travelapp.route.model.dto.request.OneTimeRouteRequest;
 import com.travelapp.route.model.dto.response.RouteMapResponse;
+import jakarta.validation.Valid;
 import com.travelapp.route.security.SecurityUtils;
 import com.travelapp.route.service.RouteMapService;
 import lombok.RequiredArgsConstructor;
@@ -18,5 +20,11 @@ public class RouteMapController {
     public ResponseEntity<RouteMapResponse> getRouteMap(@PathVariable Long id) {
         Long userId = SecurityUtils.requireUserId();
         return ResponseEntity.ok(routeMapService.getRouteMap(userId, id));
+    }
+
+    @PostMapping("/one-time/to-poi")
+    public ResponseEntity<RouteMapResponse> buildOneTimeRouteToPoi(@Valid @RequestBody OneTimeRouteRequest request) {
+        Long userId = SecurityUtils.requireUserId();
+        return ResponseEntity.ok(routeMapService.buildOneTimeRouteToPoi(userId, request));
     }
 }

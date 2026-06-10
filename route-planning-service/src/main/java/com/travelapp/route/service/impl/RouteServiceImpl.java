@@ -410,7 +410,9 @@ public class RouteServiceImpl implements RouteService {
         saved = routeRepository.save(saved);
         routeNotificationService.rescheduleOptimizedRouteNotifications(saved);
 
-        return toResponseWithWarnings(saved, buildWarnings(saved, null));
+        RouteResponse response = toResponseWithWarnings(saved, buildWarnings(saved, null));
+        response.addAdditionalProperty("optimizationSummary", optimizationService.buildOptimizationSummary(saved));
+        return response;
     }
 
     @Override

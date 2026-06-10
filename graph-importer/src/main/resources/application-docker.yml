@@ -5,3 +5,21 @@ services:
 spring:
   flyway:
     enabled: false
+  datasource:
+    hikari:
+      data-source-properties:
+        reWriteBatchedInserts: true
+  jpa:
+    properties:
+      hibernate:
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 1000
+    show-sql: false
+
+graph-import:
+#  # Меньше область вокруг POI => меньше узлов/ребер. Для демо можно поставить 0.003 через env.
+#  bbox-padding-deg: ${GRAPH_IMPORT_BBOX_PADDING_DEG:0.005}
+#  # 1000 дает понятный прогресс и не подвешивает один огромный batch на несколько минут.
+#  batch-size: ${GRAPH_IMPORT_BATCH_SIZE:1000}

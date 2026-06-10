@@ -4,7 +4,6 @@ import com.travelapp.graphimport.model.entity.CityGraphVersion;
 import com.travelapp.graphimport.model.entity.PoiGraphBinding;
 import com.travelapp.graphimport.model.entity.RoadEdge;
 import com.travelapp.graphimport.model.entity.RoadNode;
-import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,9 +12,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCreator;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,9 +26,6 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class GraphImportPersistenceServiceTest {
-
-    @Mock
-    private EntityManager entityManager;
 
     @Mock
     private JdbcTemplate jdbcTemplate;
@@ -40,13 +39,18 @@ class GraphImportPersistenceServiceTest {
     }
 
     @Test
-    void persistNodes_shouldPersistEveryNodeAndFlushByBatch() {
-        List<RoadNode> nodes = List.of(node(1L), node(2L), node(3L));
+    void persistNodes_shouldBatchInsertNodesAndAssignGeneratedIds() {
+        mockGeneratedNodeIds();
+        List<RoadNode> nodes = List.of(node(null), node(null), node(null));
 
         service.persistNodes(nodes);
 
-        nodes.forEach(node -> verify(entityManager).persist(node));
-        verify(entityManager, times(2)).flush();
+        verify(jdbcTemplate, times(2)).batchUpdate(
+                any(PreparedStatementCreator.class),
+                any(BatchPreparedStatementSetter.class),
+                any(KeyHolder.class)
+        );
+        assertThat(nodes).allSatisfy(node -> assertThat(node.getId()).isNotNull());
     }
 
     @Test
@@ -93,10 +97,30 @@ class GraphImportPersistenceServiceTest {
         verify(jdbcTemplate).batchUpdate(anyString(), any(BatchPreparedStatementSetter.class));
     }
 
+    private void mockGeneratedNodeIds() {
+        when(jdbcTemplate.batchUpdate(
+                any(PreparedStatementCreator.class),
+                any(BatchPreparedStatementSetter.class),
+                any(KeyHolder.class)
+        )).thenAnswer(invocation -> {
+            BatchPreparedStatementSetter setter = invocation.getArgument(1);
+            KeyHolder keyHolder = invocation.getArgument(2);
+            int batchSize = setter.getBatchSize();
+            for (int i = 0; i < batchSize; i++) {
+                keyHolder.getKeyList().add(Map.of("id", 1000L + i));
+            }
+            return new int[batchSize];
+        });
+    }
+
     private RoadNode node(Long id) {
+        CityGraphVersion version = new CityGraphVersion();
+        version.setId(55L);
+
         RoadNode node = new RoadNode();
         node.setId(id);
         node.setCityId(10L);
+        node.setGraphVersion(version);
         node.setLatitude(54.3);
         node.setLongitude(48.4);
         node.setGeomWkt("POINT(48.4 54.3)");

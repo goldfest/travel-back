@@ -27,7 +27,6 @@ import javax.xml.stream.XMLStreamReader;
 import java.io.FileInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -74,6 +73,7 @@ public class GraphImportServiceImpl implements GraphImportService {
     private final RouteCacheClient routeCacheClient;
     private final ObjectMapper objectMapper;
     private final GraphImportPersistenceService persistenceService;
+    private final GraphImportProgressService progressService;
 
     @Value("${graph-import.bbox-padding-deg:0.03}")
     private double bboxPaddingDeg;
@@ -94,7 +94,6 @@ public class GraphImportServiceImpl implements GraphImportService {
     private String allowedOsmRoot;
 
     @Override
-    @Transactional
     public Long importCityGraph(GraphImportRequest request) {
         Path osmPath = resolveAndValidateOsmPath(request.getCityId(), request.getOsmFilePath());
 
@@ -108,7 +107,6 @@ public class GraphImportServiceImpl implements GraphImportService {
 
         try {
             long startedAt = System.currentTimeMillis();
-
             log.info("Graph import started: cityId={}, versionId={}, osmPath={}, bbox=[{}, {}]-[{}, {}], poiCount={}",
                     request.getCityId(),
                     version.getId(),
@@ -140,12 +138,7 @@ public class GraphImportServiceImpl implements GraphImportService {
             long bindMs = System.currentTimeMillis() - bindStartedAt;
 
             log.info("Graph import phase started: cityId={}, versionId={}, phase=ACTIVATE_VERSION", request.getCityId(), version.getId());
-            graphVersionRepository.archiveActiveByCityId(request.getCityId());
-            version.setStatus(CityGraphVersion.Status.ACTIVE);
-            version.setImportedAt(LocalDateTime.now());
-            version.setFailureReason(null);
-            graphVersionRepository.save(version);
-
+            progressService.activateVersion(version.getId());
             cleanupArchivedGraphs(request.getCityId());
             evictRouteCacheQuietly(request.getCityId());
 
@@ -165,9 +158,15 @@ public class GraphImportServiceImpl implements GraphImportService {
             );
             return version.getId();
         } catch (Exception ex) {
-            version.setStatus(CityGraphVersion.Status.FAILED);
-            version.setFailureReason(limit(ex.getMessage(), 1000));
-            graphVersionRepository.save(version);
+            String failureReason = limit(ex.getMessage(), 1000);
+            String failureMessage = "Ошибка загрузки графа дорог: " + limit(ex.getMessage(), 240);
+            try {
+                persistenceService.deleteGraphData(request.getCityId(), version.getId());
+            } catch (Exception cleanupEx) {
+                log.warn("Could not clean failed graph import data: cityId={}, versionId={}, error={}",
+                        request.getCityId(), version.getId(), cleanupEx.getMessage());
+            }
+            progressService.markFailed(version.getId(), failureReason, failureMessage);
             log.error("Graph import failed: cityId={}, versionId={}", request.getCityId(), version.getId(), ex);
             throw ex instanceof RuntimeException re ? re : new IllegalStateException("Ошибка импорта графа", ex);
         }
@@ -208,19 +207,19 @@ public class GraphImportServiceImpl implements GraphImportService {
     }
 
     private CityGraphVersion createDraftVersion(Long cityId, Bbox bbox) {
-        CityGraphVersion version = new CityGraphVersion();
-        version.setCityId(cityId);
-        version.setVersionNo(graphVersionRepository.findMaxVersionNo(cityId) + 1);
-        version.setStatus(CityGraphVersion.Status.DRAFT);
-        version.setBboxMinLat(bbox.minLat());
-        version.setBboxMinLng(bbox.minLng());
-        version.setBboxMaxLat(bbox.maxLat());
-        version.setBboxMaxLng(bbox.maxLng());
-        return graphVersionRepository.save(version);
+        return progressService.createDraftVersion(
+                cityId,
+                graphVersionRepository.findMaxVersionNo(cityId) + 1,
+                bbox.minLat(),
+                bbox.minLng(),
+                bbox.maxLat(),
+                bbox.maxLng()
+        );
     }
 
+
     private int bindPois(Long cityId, CityGraphVersion version, List<InternalPoiLiteResponse> pois) {
-        poiGraphBindingRepository.deleteByCityIdAndGraphVersionId(cityId, version.getId());
+        persistenceService.deleteBindings(cityId, version.getId());
 
         List<PoiGraphBinding> bindings = new ArrayList<>();
         for (InternalPoiLiteResponse poi : pois) {

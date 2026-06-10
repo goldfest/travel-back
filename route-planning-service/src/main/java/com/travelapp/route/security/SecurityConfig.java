@@ -41,7 +41,8 @@ public class SecurityConfig {
                                 "/api-docs/**",
                                 "/actuator/**",
                                 "/health/**",
-                                "/internal/graph-cache/**"
+                                "/internal/graph-cache/**",
+                                "/v1/graphs/cities/*/status"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
