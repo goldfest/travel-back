@@ -67,11 +67,11 @@ services:
   two-gis:
     base-url: https://catalog.api.2gis.com
     api-key: ${TWO_GIS_API_KEY}
-    page-size: 5
-    max-pages: 1
-    grid-radius-km: 2
-    cell-step-km: 2
-    search-radius-meters: 2500
+    page-size: ${TWO_GIS_PAGE_SIZE:10}
+    max-pages: ${TWO_GIS_MAX_PAGES:20}
+    grid-radius-km: ${TWO_GIS_GRID_RADIUS_KM:12}
+    cell-step-km: ${TWO_GIS_CELL_STEP_KM:4}
+    search-radius-meters: ${TWO_GIS_SEARCH_RADIUS_METERS:2500}
 
 
 app:

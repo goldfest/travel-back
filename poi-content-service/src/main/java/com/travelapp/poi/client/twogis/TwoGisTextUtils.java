@@ -22,6 +22,9 @@ public final class TwoGisTextUtils {
         }
 
         String text = html
+                .replaceAll("(?is)<script[^>]*>.*?</script>", " ")
+                .replaceAll("(?is)<style[^>]*>.*?</style>", " ")
+                .replaceAll("(?is)<!--.*?-->", " ")
                 .replaceAll("(?i)<br\\s*/?>", "\n")
                 .replaceAll("(?i)</p>", "\n")
                 .replaceAll("(?i)<p[^>]*>", "")
@@ -30,7 +33,11 @@ public final class TwoGisTextUtils {
                 .replaceAll("<[^>]+>", " ")
                 .replace("&nbsp;", " ")
                 .replace("&quot;", "\"")
-                .replace("&amp;", "&");
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&laquo;", "«")
+                .replace("&raquo;", "»");
 
         text = normalizeText(text);
         return StringUtils.isBlank(text) ? null : text;
@@ -49,5 +56,4 @@ public final class TwoGisTextUtils {
 
         return null;
     }
-
 }

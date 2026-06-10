@@ -91,9 +91,12 @@ services:
       CITY_SERVICE_URL: http://city-service:8082/api/cities
       REVIEW_SERVICE_URL: http://review-service:8083/api/reviews
       ML_SERVICE_URL: http://ml-poi-worker-service:8000
-      TWO_GIS_API_KEY: 2aeb8c47-f91a-4a68-8527-b511f521e1cb
+      TWO_GIS_API_KEY: e2b0e6d3-ce65-48d4-b738-e473646c1925
       POI_MEDIA_UPLOAD_DIR: /app/uploads/poi-media
       POI_MEDIA_PUBLIC_URL_PREFIX: /api/poi/media/poi
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 60
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 10
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: 60000
     restart: unless-stopped
     networks: [travel-net]
 

@@ -55,6 +55,8 @@ public class SecurityConfig {
                                 "/poi-types/**"
                         ).permitAll()
 
+                        .requestMatchers(HttpMethod.POST, "/pois/search").permitAll()
+
                         .requestMatchers(HttpMethod.POST, "/pois").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.PUT, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")
                         .requestMatchers(HttpMethod.DELETE, "/pois/**").hasAnyRole("ADMIN", "MODERATOR")

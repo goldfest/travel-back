@@ -121,4 +121,18 @@ public interface PoiRepository extends JpaRepository<Poi, Long>, JpaSpecificatio
             @Param("cityId") Long cityId,
             @Param("delta") BigDecimal delta
     );
+
+    @Query("""
+        SELECT p
+        FROM Poi p
+        WHERE p.cityId = :cityId
+          AND ABS(p.latitude - :latitude) <= :delta
+          AND ABS(p.longitude - :longitude) <= :delta
+    """)
+    List<Poi> findPotentialDuplicatesByCoordinates(
+            @Param("latitude") BigDecimal latitude,
+            @Param("longitude") BigDecimal longitude,
+            @Param("cityId") Long cityId,
+            @Param("delta") BigDecimal delta
+    );
 }

@@ -64,7 +64,31 @@ public class ImportServiceImpl implements ImportService {
     private final ExecutorService importExecutor = Executors.newFixedThreadPool(5);
 
     private static final Set<String> BLOCKED_WORDS = Set.of(
-            "бляд", "бля", "сука", "хуй", "нахуй", "пизд", "ебан", "ебать", "мразь"
+            "бля", "бляд", "блять", "сука", "сук", "суч", "хуй", "хуи", "хуе", "нах",
+            "нахуй", "пизд", "пиздец", "еб", "еба", "ебан", "ебать", "ёб", "уеб",
+            "уёб", "заеб", "выеб", "мраз", "мудак", "гандон", "долбоеб", "чмо",
+            "шалав", "простит", "твар", "урод", "оху", "ахуе", "нихуя", "нихера"
+    );
+
+    private static final java.util.Map<Character, Character> MASKED_LETTER_REPLACEMENTS = java.util.Map.ofEntries(
+            java.util.Map.entry('@', 'а'),
+            java.util.Map.entry('4', 'ч'),
+            java.util.Map.entry('3', 'з'),
+            java.util.Map.entry('0', 'о'),
+            java.util.Map.entry('1', 'и'),
+            java.util.Map.entry('!', 'и'),
+            java.util.Map.entry('$', 'с'),
+            java.util.Map.entry('x', 'х'),
+            java.util.Map.entry('y', 'у'),
+            java.util.Map.entry('a', 'а'),
+            java.util.Map.entry('e', 'е'),
+            java.util.Map.entry('o', 'о'),
+            java.util.Map.entry('p', 'р'),
+            java.util.Map.entry('c', 'с'),
+            java.util.Map.entry('k', 'к'),
+            java.util.Map.entry('m', 'м'),
+            java.util.Map.entry('t', 'т'),
+            java.util.Map.entry('b', 'в')
     );
 
     @Value("${import.progress.log-every:10}")
@@ -520,18 +544,37 @@ public class ImportServiceImpl implements ImportService {
             return false;
         }
 
-        String normalized = text.toLowerCase()
-                .replace('ё', 'е')
-                .replaceAll("[^а-яa-z0-9\\s]", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
+        String normalized = normalizeForModeration(text);
+        String compact = normalized.replaceAll("[^а-яa-z0-9]", "");
 
         for (String word : BLOCKED_WORDS) {
-            if (normalized.contains(word)) {
+            if (normalized.contains(word) || compact.contains(word)) {
                 return true;
             }
         }
-        return false;
+
+        return java.util.regex.Pattern.compile("бл[яа]д|х[уy][ийе]|п[и1]з[дd]|[еe]б")
+                .matcher(normalized)
+                .find();
+    }
+
+    private String normalizeForModeration(String text) {
+        String lower = text.toLowerCase(java.util.Locale.ROOT)
+                .replace('ё', 'е')
+                .replaceAll("(?is)<script[^>]*>.*?</script>", " ")
+                .replaceAll("(?is)<style[^>]*>.*?</style>", " ")
+                .replaceAll("<[^>]+>", " ");
+
+        StringBuilder builder = new StringBuilder(lower.length());
+        for (char ch : lower.toCharArray()) {
+            builder.append(MASKED_LETTER_REPLACEMENTS.getOrDefault(ch, ch));
+        }
+
+        return builder.toString()
+                .replaceAll("[_*\\-+=~`'\"|\\/^<>.,:;()\\[\\]{}]", "")
+                .replaceAll("(.)\\1{2,}", "$1$1")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private boolean shouldForceManualReview(PoiCreateRequest request) {
